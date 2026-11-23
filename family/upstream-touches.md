@@ -40,3 +40,6 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `web/src/routes/invite/[token]/` (new), `web/src/routes/(user)/family/` (new), `web/src/lib/family/` (new) | public invite sign-up page; Family page | fork-only pages, in plain English (no i18n keys, to avoid conflicts in `i18n/en.json`) |
 | `server/src/services/person.service.ts` | after a name or birth date update, calls `FamilyPeopleService.onStockPersonUpdate` | names and birth dates are shared family-wide, whichever screen changed them |
 | `server/src/schema/migrations/ORDER` | appends `1795454307226-FamilyAddPeople` | people, relations, comments tables |
+| `web/src/lib/components/asset-viewer/DetailPanel.svelte` | family members can edit captions, places and faces (`canEdit`); adds `FamilyAssetPanel` (people with ages, comments) | the server already allows these edits |
+| `web/src/lib/components/asset-viewer/DetailPanelDate.svelte` | family members can edit dates | same |
+| `web/src/routes/(user)/family/people/`, `.../tree/`, `.../browse/`, `web/src/lib/family/` (new) | people, person page, tree, browse by relation, bio renderer | fork-only |

@@ -1,21 +1,24 @@
-// family fork: whether the signed-in user is in a family, for showing family navigation
-import { getMyFamily } from '@immich/sdk';
+// family fork: the signed-in user's family role, for showing family navigation and edit controls
+import { FamilyRole, getMyFamily } from '@immich/sdk';
 
 class FamilyState {
   inFamily = $state(false);
-  #loaded = false;
+  role = $state<FamilyRole | null>(null);
+  /** Members and admins can edit any family photo and the family's people; viewers only look. */
+  canContribute = $derived(this.role === FamilyRole.Admin || this.role === FamilyRole.Member);
+  #loading: Promise<void> | null = null;
 
-  async load() {
-    if (this.#loaded) {
-      return;
-    }
-    this.#loaded = true;
-    try {
-      await getMyFamily();
-      this.inFamily = true;
-    } catch {
-      this.inFamily = false;
-    }
+  load() {
+    this.#loading ??= getMyFamily()
+      .then((family) => {
+        this.inFamily = true;
+        this.role = family.role;
+      })
+      .catch(() => {
+        this.inFamily = false;
+        this.role = null;
+      });
+    return this.#loading;
   }
 }
 

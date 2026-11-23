@@ -2,6 +2,7 @@
   // family fork: members, invite links and invite requests
   import UserPageLayout from '#lib/components/layouts/UserPageLayout.svelte';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
+  import { Route } from '#lib/route.ts';
   import { copyToClipboard } from '#lib/utils.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
   import {
@@ -203,6 +204,11 @@
     {#if !family}
       <Alert color="secondary" title="You're not in a family library yet." />
     {:else}
+      <div class="flex flex-wrap gap-2">
+        <Button href={Route.familyPeople()} shape="round">People</Button>
+        <Button href={Route.familyTree()} variant="outline" shape="round">Family tree</Button>
+      </div>
+
       <section>
         <Heading size="small" class="mb-4">Members</Heading>
         <ul class="flex flex-col gap-2">

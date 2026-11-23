@@ -108,6 +108,11 @@ export const Route = {
   sharing: () => '/sharing',
   // family fork
   family: () => '/family',
+  familyPeople: () => '/family/people',
+  familyPerson: ({ id }: { id: string }) => `/family/people/${id}`,
+  familyTree: (params?: { focus?: string }) => '/family/tree' + asQueryString(params),
+  familyBrowse: (params: { people: string; mode?: 'any' | 'together'; title?: string }) =>
+    '/family/browse' + asQueryString(params),
 
   // shared links
   sharedLinks: (params?: { filter?: SharedLinkTab }) => '/shared-links' + asQueryString(params),

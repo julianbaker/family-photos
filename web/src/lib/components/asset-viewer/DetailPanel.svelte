@@ -6,6 +6,8 @@
   import DetailPanelRating from '#lib/components/asset-viewer/DetailPanelStarRating.svelte';
   import DetailPanelTags from '#lib/components/asset-viewer/DetailPanelTags.svelte';
   import { timeToLoadTheMap } from '#lib/constants.ts';
+  import FamilyAssetPanel from '#lib/family/FamilyAssetPanel.svelte';
+  import { familyState } from '#lib/family/family-state.svelte.ts';
   import { assetViewerManager } from '#lib/managers/asset-viewer-manager.svelte.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { getAlbumsByAssetQuery } from '#lib/queries/album.query.ts';
@@ -42,6 +44,8 @@
   let { asset, currentAlbum = null }: Props = $props();
 
   let isOwner = $derived(authManager.authenticated && authManager.user.id === asset.ownerId);
+  // family fork: family members can edit captions, places and faces on any family photo
+  let canEdit = $derived(isOwner || familyState.canContribute);
   let latlng = $derived(
     (() => {
       const lat = asset.exifInfo?.latitude;
@@ -138,9 +142,10 @@
       </section>
     {/if}
 
-    <DetailPanelDescription {asset} {isOwner} />
+    <DetailPanelDescription {asset} isOwner={canEdit} />
     <DetailPanelRating {asset} {isOwner} />
-    <DetailPanelPeople {asset} {isOwner} {previousRoute} />
+    <DetailPanelPeople {asset} isOwner={canEdit} {previousRoute} />
+    <FamilyAssetPanel {asset} />
 
     <div class="p-4">
       {#if asset.exifInfo}
@@ -263,7 +268,7 @@
         </div>
       {/if}
 
-      <DetailPanelLocation {isOwner} {asset} />
+      <DetailPanelLocation isOwner={canEdit} {asset} />
     </div>
   </section>
 

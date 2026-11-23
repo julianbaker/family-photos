@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { familyState } from '#lib/family/family-state.svelte.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import AssetChangeDateModal from '#lib/modals/AssetChangeDateModal.svelte';
   import { locale } from '#lib/stores/preferences.store.ts';
@@ -20,7 +21,10 @@
       ? fromISODateTime(asset.exifInfo.dateTimeOriginal, timeZone)
       : fromISODateTimeUTC(asset.localDateTime),
   );
-  const isOwner = $derived(authManager.authenticated && asset.ownerId === authManager.user.id);
+  // family fork: family members can fix dates on any family photo
+  const isOwner = $derived(
+    (authManager.authenticated && asset.ownerId === authManager.user.id) || familyState.canContribute,
+  );
 
   const handleChangeDate = async () => {
     if (!isOwner) {
