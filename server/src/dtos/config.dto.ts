@@ -31,6 +31,7 @@ import {
   VideoContainer,
   VideoContainerSchema,
 } from 'src/enum.js';
+import { familyMapStyles } from 'src/family/family-map.js';
 import type { DeepPartial } from 'src/types.js';
 
 const { Admin, User, Public } = ConfigVisibility;
@@ -690,8 +691,11 @@ export const defaults = Object.freeze<SystemConfig>({
   },
   map: {
     enabled: true,
-    lightStyle: 'https://tiles.immich.cloud/v1/style/light.json',
-    darkStyle: 'https://tiles.immich.cloud/v1/style/dark.json',
+    // family fork: OpenFreeMap when the family feature is on
+    ...familyMapStyles({
+      lightStyle: 'https://tiles.immich.cloud/v1/style/light.json',
+      darkStyle: 'https://tiles.immich.cloud/v1/style/dark.json',
+    }),
   },
   reverseGeocoding: {
     enabled: true,
