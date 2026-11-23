@@ -47,6 +47,10 @@ export class FamilyRepository {
     return this.db.selectFrom('family').selectAll().where('id', '=', id).executeTakeFirst();
   }
 
+  updateFamily(id: string, values: { name?: string; wordmark?: string | null }) {
+    return this.db.updateTable('family').set(values).where('id', '=', id).execute();
+  }
+
   @GenerateSql()
   getAnyFamily() {
     return this.db.selectFrom('family').selectAll().orderBy('createdAt', 'asc').executeTakeFirst();

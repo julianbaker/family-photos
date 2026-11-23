@@ -9,6 +9,23 @@ const FamilyCreateSchema = z
   .object({ name: z.string().trim().min(1).max(100).optional().describe('Family name') })
   .meta({ id: 'FamilyCreateDto' });
 
+const FamilyUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional().describe('Family name'),
+    wordmark: z
+      .string()
+      .trim()
+      .max(40)
+      .nullable()
+      .optional()
+      .describe('Text shown in place of a logo on the website; empty or null for the default'),
+  })
+  .meta({ id: 'FamilyUpdateDto' });
+
+const FamilyBrandingResponseSchema = z
+  .object({ wordmark: z.string().describe('Text shown in place of a logo on the website') })
+  .meta({ id: 'FamilyBrandingResponseDto' });
+
 const FamilyMemberCreateSchema = z
   .object({
     userId: z.uuidv4().describe('Existing user to add to the family'),
@@ -32,6 +49,7 @@ const FamilyResponseSchema = z
   .object({
     id: z.uuidv4().describe('Family ID'),
     name: z.string().describe('Family name'),
+    wordmark: z.string().nullable().describe('Custom website wordmark, or null for the default'),
     role: FamilyRoleSchema.describe('Role of the current user'),
     members: z.array(FamilyMemberResponseSchema).describe('Family members'),
   })
@@ -58,6 +76,8 @@ const FamilyHistoryResponseSchema = z
   .meta({ id: 'FamilyHistoryResponseDto' });
 
 export class FamilyCreateDto extends createZodDto(FamilyCreateSchema) {}
+export class FamilyUpdateDto extends createZodDto(FamilyUpdateSchema) {}
+export class FamilyBrandingResponseDto extends createZodDto(FamilyBrandingResponseSchema) {}
 export class FamilyMemberCreateDto extends createZodDto(FamilyMemberCreateSchema) {}
 export class FamilyMemberUpdateDto extends createZodDto(FamilyMemberUpdateSchema) {}
 export class FamilyMemberResponseDto extends createZodDto(FamilyMemberResponseSchema) {}

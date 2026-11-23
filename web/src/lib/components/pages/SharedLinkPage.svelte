@@ -3,13 +3,14 @@
   import IndividualSharedViewer from '#lib/components/share-page/IndividualSharedViewer.svelte';
   import ControlAppBar from '#lib/components/shared-components/ControlAppBar.svelte';
   import ThemeButton from '#lib/components/shared-components/ThemeButton.svelte';
+  import Wordmark from '#lib/family/Wordmark.svelte';
   import { assetViewerManager } from '#lib/managers/asset-viewer-manager.svelte.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { setSharedLink } from '#lib/utils.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
   import { navigate } from '#lib/utils/navigation.ts';
   import { SharedLinkType, sharedLinkLogin, type AssetResponseDto, type SharedLinkResponseDto } from '@immich/sdk';
-  import { Button, Logo, PasswordInput } from '@immich/ui';
+  import { Button, PasswordInput } from '@immich/ui';
   import { onDestroy, tick } from 'svelte';
   import { t } from 'svelte-i18n';
 
@@ -88,7 +89,7 @@
     <ControlAppBar>
       {#snippet leading()}
         <a data-sveltekit-preload-data="hover" class="ms-4" href="/">
-          <Logo variant="inline" />
+          <Wordmark />
         </a>
       {/snippet}
 

@@ -1,6 +1,7 @@
 <script lang="ts">
-  // family fork: members, invite links and invite requests
+  // family fork: the family's name and the website wordmark, members, invite links and invite requests
   import UserPageLayout from '#lib/components/layouts/UserPageLayout.svelte';
+  import { DEFAULT_WORDMARK, branding } from '#lib/family/branding.svelte.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { copyToClipboard } from '#lib/utils.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
@@ -17,6 +18,7 @@
     getMyFamily,
     removeFamilyMember,
     revokeFamilyInvite,
+    updateFamily,
     updateFamilyMember,
     type FamilyInviteRequestResponseDto,
     type FamilyInviteResponseDto,
@@ -40,6 +42,26 @@
   let linkDays = $state('7');
   let linkLabel = $state('');
   let creating = $state(false);
+
+  // name and wordmark
+  let familyName = $state(data.family?.name ?? '');
+  let wordmark = $state(data.family?.wordmark ?? '');
+  let savingBrand = $state(false);
+
+  const saveBrand = async (event: Event) => {
+    event.preventDefault();
+    savingBrand = true;
+    try {
+      family = await updateFamily({
+        familyUpdateDto: { name: familyName.trim() || undefined, wordmark: wordmark.trim() || null },
+      });
+      branding.set(family.wordmark);
+    } catch (error) {
+      handleError(error, 'Could not save');
+    } finally {
+      savingBrand = false;
+    }
+  };
 
   // request form
   let requestName = $state('');
@@ -203,6 +225,24 @@
     {#if !family}
       <Alert color="secondary" title="You're not in a family library yet." />
     {:else}
+      {#if isAdmin}
+        <section>
+          <Heading size="small" class="mb-4">Name and website</Heading>
+          <form onsubmit={saveBrand} class="flex flex-col gap-4">
+            <Field label="Family name" description="Shown on invite links and the join page.">
+              <Input bind:value={familyName} />
+            </Field>
+            <Field
+              label="Wordmark"
+              description={`Shown in place of a logo across the website, including the sign-in page. Leave empty for "${DEFAULT_WORDMARK}".`}
+            >
+              <Input bind:value={wordmark} placeholder={DEFAULT_WORDMARK} maxlength={40} />
+            </Field>
+            <div><Button type="submit" shape="round" loading={savingBrand}>Save</Button></div>
+          </form>
+        </section>
+      {/if}
+
       <section>
         <Heading size="small" class="mb-4">Members</Heading>
         <ul class="flex flex-col gap-2">

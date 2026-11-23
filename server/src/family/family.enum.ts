@@ -9,6 +9,7 @@ export enum FamilyRole {
 
 export enum FamilyHistoryAction {
   FamilyCreate = 'family.create',
+  FamilyUpdate = 'family.update',
   MemberAdd = 'member.add',
   MemberRemove = 'member.remove',
   MemberRoleUpdate = 'member.role.update',

@@ -78,6 +78,29 @@ afterAll(() => {
 });
 
 describe(FamilyService.name, () => {
+  describe('branding', () => {
+    it('shows "sibred" until an admin sets a wordmark, and only admins can', async () => {
+      const setupResult = setup();
+      const { sut, ctx } = setupResult;
+      const { family, adminAuth } = await newFamily(setupResult);
+      const { user: member } = await ctx.newUser();
+      await sut.addMember(adminAuth, { userId: member.id, role: FamilyRole.Member });
+
+      expect(await sut.getBranding()).toEqual({ wordmark: 'sibred' });
+
+      const updated = await sut.update(adminAuth, { wordmark: '  The Bakers  ', name: 'Baker family' });
+      expect(updated).toEqual(expect.objectContaining({ id: family.id, name: 'Baker family', wordmark: 'The Bakers' }));
+      expect(await sut.getBranding()).toEqual({ wordmark: 'The Bakers' });
+
+      await expect(sut.update(factory.auth({ user: member }), { wordmark: 'Mine' })).rejects.toThrow(
+        'Only a family admin',
+      );
+
+      await sut.update(adminAuth, { wordmark: '' });
+      expect(await sut.getBranding()).toEqual({ wordmark: 'sibred' });
+    });
+  });
+
   describe('create', () => {
     it('makes the admin the first family admin, in their own cluster group', async () => {
       const ctx = setup();

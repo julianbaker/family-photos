@@ -1,3 +1,14 @@
+# sibred
+
+**sibred** is a family photo library: one shared library for a whole family, with a family tree,
+people with bios and relations, comments on photos, and invite links. It is a fork of
+[Immich](https://github.com/immich-app/immich) and is **built on Immich**: almost everything here is
+Immich's work, used under the GNU AGPL v3. The family features live in `server/src/family`,
+`web/src/routes/(user)/family` and `web/src/lib/family`; `family/upstream-touches.md` lists every
+Immich file the fork changes. The rest of this README is Immich's own.
+
+---
+
 <p align="center"> 
   <br/>
   <a href="https://opensource.org/license/agpl-v3"><img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg?color=3F51B5&style=for-the-badge&label=License&logoColor=000000&labelColor=ececec" alt="License: AGPLv3"></a>

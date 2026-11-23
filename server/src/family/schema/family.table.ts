@@ -26,6 +26,10 @@ export class FamilyTable {
   @Column({ type: 'character varying', default: 'Family' })
   name!: Generated<string>;
 
+  /** The text shown in place of a logo on the website (sign-in page, top bar). Empty means "sibred". */
+  @Column({ type: 'character varying', nullable: true })
+  wordmark!: string | null;
+
   @CreateDateColumn()
   createdAt!: Generated<Timestamp>;
 

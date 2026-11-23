@@ -3,12 +3,14 @@ import { OnEvent } from 'src/decorators.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { ImmichWorker } from 'src/enum.js';
 import {
+  FamilyBrandingResponseDto,
   FamilyCreateDto,
   FamilyHistoryQueryDto,
   FamilyHistoryResponseDto,
   FamilyMemberCreateDto,
   FamilyMemberUpdateDto,
   FamilyResponseDto,
+  FamilyUpdateDto,
 } from 'src/family/family.dto.js';
 import { FamilyHistoryAction, FamilyRole } from 'src/family/family.enum.js';
 import { isFamilyEnabled } from 'src/family/family.flag.js';
@@ -269,6 +271,38 @@ export class FamilyService extends BaseService {
     return membership;
   }
 
+  /** Family admins rename the family and set the website's wordmark. */
+  async update(auth: AuthDto, dto: FamilyUpdateDto): Promise<FamilyResponseDto> {
+    const membership = await this.requireFamilyAdmin(auth);
+    const before = await this.familyRepository.getFamily(membership.familyId);
+    const changes: { name?: string; wordmark?: string | null } = {};
+    if (dto.name !== undefined) {
+      changes.name = dto.name;
+    }
+    if (dto.wordmark !== undefined) {
+      changes.wordmark = dto.wordmark?.trim() || null;
+    }
+    if (Object.keys(changes).length > 0) {
+      await this.familyRepository.updateFamily(membership.familyId, changes);
+      await this.familyRepository.addHistory({
+        familyId: membership.familyId,
+        userId: auth.user.id,
+        action: FamilyHistoryAction.FamilyUpdate,
+        entityType: 'family',
+        entityId: membership.familyId,
+        before: { name: before?.name, wordmark: before?.wordmark ?? null },
+        after: changes,
+      });
+    }
+    return this.mapFamily(membership);
+  }
+
+  /** Public: the website shows the wordmark on the sign-in page, before anyone signs in. */
+  async getBranding(): Promise<FamilyBrandingResponseDto> {
+    const family = isFamilyEnabled() ? await this.familyRepository.getAnyFamily() : undefined;
+    return { wordmark: family?.wordmark?.trim() || 'sibred' };
+  }
+
   private async requireFamilyAdmin(auth: AuthDto): Promise<FamilyMembership> {
     const membership = await this.requireMembership(auth);
     if (membership.role !== FamilyRole.Admin) {
@@ -291,6 +325,7 @@ export class FamilyService extends BaseService {
     return {
       id: family.id,
       name: family.name,
+      wordmark: family.wordmark,
       role: membership.role,
       members: members.map((member) => ({
         userId: member.userId,

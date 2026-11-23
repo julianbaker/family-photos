@@ -4,6 +4,7 @@
   import DownloadAction from '#lib/components/timeline/actions/DownloadAction.svelte';
   import RemoveFromSharedLink from '#lib/components/timeline/actions/RemoveFromSharedLinkAction.svelte';
   import { AssetAction } from '#lib/constants.ts';
+  import Wordmark from '#lib/family/Wordmark.svelte';
   import { assetMultiSelectManager } from '#lib/managers/asset-multi-select-manager.svelte.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import type { Viewport } from '#lib/managers/timeline-manager/types.ts';
@@ -16,7 +17,7 @@
   import { handleError } from '#lib/utils/handle-error.ts';
   import { toTimelineAsset } from '#lib/utils/timeline-util.ts';
   import { getAssetInfo, type SharedLinkResponseDto } from '@immich/sdk';
-  import { IconButton, Logo, toastManager } from '@immich/ui';
+  import { IconButton, toastManager } from '@immich/ui';
   import { mdiDownload, mdiFileImagePlusOutline, mdiSelectAll } from '@mdi/js';
   import { t } from 'svelte-i18n';
   import { goto } from '$app/navigation';
@@ -107,7 +108,7 @@
       <ControlAppBar>
         {#snippet leading()}
           <a data-sveltekit-preload-data="hover" class="ms-4" href="/">
-            <Logo variant={mediaQueryManager.maxMd ? 'icon' : 'inline'} class="min-w-10" />
+            <Wordmark size={mediaQueryManager.maxMd ? 'small' : 'medium'} />
           </a>
         {/snippet}
 

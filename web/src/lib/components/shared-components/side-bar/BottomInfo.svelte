@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { branding } from '#lib/family/branding.svelte.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { featureFlagsManager } from '#lib/managers/feature-flags-manager.svelte.ts';
   import { Route } from '#lib/route.ts';
@@ -21,4 +22,9 @@
 
 <div class="mt-2 mb-6">
   <ServerStatus />
+  <!-- family fork: credit where it's due (AGPL) -->
+  <p class="ms-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
+    {branding.wordmark} · Built on
+    <a href="https://immich.app" target="_blank" rel="noopener noreferrer" class="underline">Immich</a>
+  </p>
 </div>

@@ -4,12 +4,14 @@ import { Endpoint, HistoryBuilder } from 'src/decorators.js';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import { ApiTag } from 'src/enum.js';
 import {
+  FamilyBrandingResponseDto,
   FamilyCreateDto,
   FamilyHistoryQueryDto,
   FamilyHistoryResponseDto,
   FamilyMemberCreateDto,
   FamilyMemberUpdateDto,
   FamilyResponseDto,
+  FamilyUpdateDto,
 } from 'src/family/family.dto.js';
 import { FamilyService } from 'src/family/family.service.js';
 import { Auth, Authenticated } from 'src/middleware/auth.guard.js';
@@ -31,6 +33,28 @@ export class FamilyController {
   })
   getMyFamily(@Auth() auth: AuthDto): Promise<FamilyResponseDto> {
     return this.service.getMyFamily(auth);
+  }
+
+  @Put()
+  @Authenticated()
+  @Endpoint({
+    summary: 'Update the family',
+    description: 'Family admins rename the family and set the website wordmark.',
+    history: added(),
+  })
+  updateFamily(@Auth() auth: AuthDto, @Body() dto: FamilyUpdateDto): Promise<FamilyResponseDto> {
+    return this.service.update(auth, dto);
+  }
+
+  @Get('branding')
+  @Authenticated({ public: true })
+  @Endpoint({
+    summary: 'Get the website branding',
+    description: 'The wordmark the website shows in place of a logo, including on the sign-in page.',
+    history: added(),
+  })
+  getFamilyBranding(): Promise<FamilyBrandingResponseDto> {
+    return this.service.getBranding();
   }
 
   @Post()

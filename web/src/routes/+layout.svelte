@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getPagesProvider, getSettingsProvider } from '#lib/commands.ts';
   import OnEvents from '#lib/components/OnEvents.svelte';
+  import { branding } from '#lib/family/branding.svelte.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { eventManager } from '#lib/managers/event-manager.svelte.ts';
   import ServerRestartingModal from '#lib/modals/ServerRestartingModal.svelte';
@@ -143,6 +144,7 @@
   toastManager.setOptions({ class: 'top-16 fixed' });
 
   onMount(() => {
+    void branding.load();
     const element = document.querySelector('#stencil');
     element?.remove();
     // if the browser theme changes, changes the Immich theme too
@@ -212,7 +214,8 @@
 <VersionAnnouncement />
 
 <svelte:head>
-  <title>{page.data.meta?.title || 'Web'} - Immich</title>
+  <!-- family fork: the site's own name -->
+  <title>{page.data.meta?.title || 'Web'} - {branding.wordmark}</title>
   <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
   <meta name="theme-color" content="white" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="black" media="(prefers-color-scheme: dark)" />

@@ -7,13 +7,14 @@
   import NotificationPanel from '#lib/components/shared-components/navigation-bar/NotificationPanel.svelte';
   import SearchBar from '#lib/components/shared-components/search-bar/SearchBar.svelte';
   import SkipLink from '#lib/elements/SkipLink.svelte';
+  import Wordmark from '#lib/family/Wordmark.svelte';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { getNotificationsQuery } from '#lib/queries/notification.query.ts';
   import { Route } from '#lib/route.ts';
   import { getGlobalActions } from '#lib/services/app.service.ts';
   import { mediaQueryManager } from '#lib/stores/media-query-manager.svelte.ts';
   import { sidebarStore } from '#lib/stores/sidebar.svelte.ts';
-  import { ActionButton, Button, IconButton, Logo } from '@immich/ui';
+  import { ActionButton, Button, IconButton } from '@immich/ui';
   import { mdiBellBadge, mdiBellOutline, mdiMagnify, mdiMenu, mdiTrayArrowUp } from '@mdi/js';
   import { createQuery } from '@tanstack/svelte-query';
   import { t } from 'svelte-i18n';
@@ -70,7 +71,7 @@
         class="sidebar:hidden"
       />
       <a data-sveltekit-preload-data="hover" href={Route.photos()}>
-        <Logo variant={mediaQueryManager.isFullSidebar ? 'inline' : 'icon'} class="max-md:h-12" />
+        <Wordmark size={mediaQueryManager.isFullSidebar ? 'medium' : 'small'} />
       </a>
     </div>
     <div class="flex justify-between gap-4 pe-6 lg:gap-8">

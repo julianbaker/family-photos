@@ -1792,10 +1792,18 @@ export type FamilyResponseDto = {
     name: string;
     /** Role of the current user */
     role: FamilyRole;
+    /** Custom website wordmark, or null for the default */
+    wordmark: string | null;
 };
 export type FamilyCreateDto = {
     /** Family name */
     name?: string;
+};
+export type FamilyUpdateDto = {
+    /** Family name */
+    name?: string;
+    /** Text shown in place of a logo on the website; empty or null for the default */
+    wordmark?: string | null;
 };
 export type FamilyCommentResponseDto = {
     assetId: string;
@@ -1822,6 +1830,10 @@ export type FamilyAssetPersonResponseDto = {
     name: string;
     personId: string;
     relationToMe: (FamilyRelationshipDto) | null;
+};
+export type FamilyBrandingResponseDto = {
+    /** Text shown in place of a logo on the website */
+    wordmark: string;
 };
 export type FamilyHistoryResponseDto = {
     action: string;
@@ -5870,6 +5882,21 @@ export function createFamily({ familyCreateDto }: {
     })));
 }
 /**
+ * Update the family
+ */
+export function updateFamily({ familyUpdateDto }: {
+    familyUpdateDto: FamilyUpdateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyResponseDto;
+    }>("/family", oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: familyUpdateDto
+    })));
+}
+/**
  * Comments on a photo
  */
 export function getFamilyComments({ id }: {
@@ -5908,6 +5935,17 @@ export function getFamilyAssetPeople({ id }: {
         status: 200;
         data: FamilyAssetPersonResponseDto[];
     }>(`/family/assets/${encodeURIComponent(id)}/people`, {
+        ...opts
+    }));
+}
+/**
+ * Get the website branding
+ */
+export function getFamilyBranding(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyBrandingResponseDto;
+    }>("/family/branding", {
         ...opts
     }));
 }

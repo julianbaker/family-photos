@@ -1,9 +1,9 @@
 <script lang="ts">
+  import Wordmark from '#lib/family/Wordmark.svelte';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { createPreloadedQuery } from '#lib/queries/client.ts';
   import { getServerConfigQuery } from '#lib/queries/server-info.query.ts';
   import { OnboardingRole } from '#lib/types.ts';
-  import { Logo } from '@immich/ui';
   import { t } from 'svelte-i18n';
 
   const query = createPreloadedQuery(getServerConfigQuery);
@@ -15,7 +15,7 @@
 </script>
 
 <div class="gap-4">
-  <Logo variant="icon" size="giant" class="mb-2" />
+  <Wordmark size="giant" class="mb-2" />
   <p class="mb-6 text-6xl font-medium text-primary">
     {$t('onboarding_welcome_user', { values: { user: authManager.user.name } })}
   </p>

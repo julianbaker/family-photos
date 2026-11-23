@@ -7305,6 +7305,54 @@
             "state": "Added"
           }
         ]
+      },
+      "put": {
+        "description": "Family admins rename the family and set the website wordmark.",
+        "operationId": "updateFamily",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyUpdateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Update the family",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
       }
     },
     "/family/assets/{id}/comments": {
@@ -7463,6 +7511,35 @@
           }
         ],
         "summary": "People in a photo",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/branding": {
+      "get": {
+        "description": "The wordmark the website shows in place of a logo, including on the sign-in page.",
+        "operationId": "getFamilyBranding",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyBrandingResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "Get the website branding",
         "tags": [
           "Family"
         ],
@@ -24371,6 +24448,18 @@
         ],
         "type": "object"
       },
+      "FamilyBrandingResponseDto": {
+        "properties": {
+          "wordmark": {
+            "description": "Text shown in place of a logo on the website",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wordmark"
+        ],
+        "type": "object"
+      },
       "FamilyCommentCreateDto": {
         "properties": {
           "text": {
@@ -25223,13 +25312,19 @@
           "role": {
             "$ref": "#/components/schemas/FamilyRole",
             "description": "Role of the current user"
+          },
+          "wordmark": {
+            "description": "Custom website wordmark, or null for the default",
+            "nullable": true,
+            "type": "string"
           }
         },
         "required": [
           "id",
           "members",
           "name",
-          "role"
+          "role",
+          "wordmark"
         ],
         "type": "object"
       },
@@ -25241,6 +25336,23 @@
           "viewer"
         ],
         "type": "string"
+      },
+      "FamilyUpdateDto": {
+        "properties": {
+          "name": {
+            "description": "Family name",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "wordmark": {
+            "description": "Text shown in place of a logo on the website; empty or null for the default",
+            "maxLength": 40,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
       },
       "FoldersResponse": {
         "properties": {
