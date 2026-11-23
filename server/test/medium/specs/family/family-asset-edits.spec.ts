@@ -38,6 +38,7 @@ const setup = () => {
       AssetJobRepository,
       AlbumRepository,
       AccessRepository,
+      FamilyRepository,
       SharedLinkAssetRepository,
       StackRepository,
       UserRepository,
@@ -98,6 +99,29 @@ describe('family photo edits', () => {
       .where('assetId', '=', asset.id)
       .executeTakeFirstOrThrow();
     expect(exif.description).toBe('Grandma at the beach');
+  });
+
+  it('records the edit in the family history with the values before and after', async () => {
+    const setupResult = setup();
+    const { member, asset } = await newFamily(setupResult);
+    setupResult.ctx.getMock(JobRepository).queue.mockResolvedValue();
+
+    await setupResult.sut.update(factory.auth({ user: member }), asset.id, { description: 'Grandma at the beach' });
+
+    const history = await setupResult.ctx.database
+      .selectFrom('family_history')
+      .selectAll()
+      .where('action', '=', 'asset.update')
+      .execute();
+    expect(history).toEqual([
+      expect.objectContaining({
+        userId: member.id,
+        entityType: 'asset',
+        entityId: asset.id,
+        before: { description: '' },
+        after: { description: 'Grandma at the beach' },
+      }),
+    ]);
   });
 
   it.each([

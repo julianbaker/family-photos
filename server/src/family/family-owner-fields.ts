@@ -1,33 +1,75 @@
 import { BadRequestException } from '@nestjs/common';
 import { AuthDto } from 'src/dtos/auth.dto.js';
+import { FamilyHistoryAction } from 'src/family/family.enum.js';
 import { isFamilyEnabled } from 'src/family/family.flag.js';
+import { FamilyRepository } from 'src/family/family.repository.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 
 /** Fields that stay personal to a photo's owner, even though other family members may edit the photo. */
 const OWNER_ONLY_FIELDS = ['isFavorite', 'visibility', 'rating', 'livePhotoVideoId', 'duplicateId'] as const;
 
+/** Fields recorded in the family history, so an edit can be reviewed and reverted. */
+const HISTORY_FIELDS = [
+  'description',
+  'dateTimeOriginal',
+  'dateTimeRelative',
+  'timeZone',
+  'latitude',
+  'longitude',
+  'rating',
+  'isFavorite',
+  'visibility',
+  'duplicateId',
+  'livePhotoVideoId',
+] as const;
+
+type AssetUpdateFields = Partial<Record<(typeof HISTORY_FIELDS)[number], unknown>>;
+
+type Deps = { access: AccessRepository; family: FamilyRepository };
+
+const pick = (source: Record<string, unknown>, fields: readonly string[]) =>
+  Object.fromEntries(fields.filter((field) => source[field] !== undefined).map((field) => [field, source[field]]));
+
 /**
-Family members can edit each other's photos (dates, places, captions), but favourites, archive,
-hidden/locked, ratings, Live Photo links and duplicate choices belong to the owner. Throws when the
-request changes one of those on a photo the user doesn't own.
+Runs before a photo update. Family members can edit each other's photos (dates, places, captions),
+but favourites, archive, hidden/locked, ratings, Live Photo links and duplicate choices belong to
+the owner, so changing those on someone else's photo is refused. Every edit by a family member is
+recorded in the family history with the values before and after.
 */
-export const requireOwnerForPersonalFields = async (
-  access: AccessRepository,
+export const familyBeforeAssetUpdate = async (
+  { access, family }: Deps,
   auth: AuthDto,
   ids: string[],
-  dto: Partial<Record<(typeof OWNER_ONLY_FIELDS)[number], unknown>>,
+  dto: AssetUpdateFields,
 ): Promise<void> => {
   if (!isFamilyEnabled() || ids.length === 0) {
     return;
   }
 
-  const changed = OWNER_ONLY_FIELDS.filter((field) => dto[field] !== undefined);
-  if (changed.length === 0) {
+  const ownerOnly = OWNER_ONLY_FIELDS.filter((field) => dto[field] !== undefined);
+  if (ownerOnly.length > 0) {
+    const owned = await access.asset.checkOwnerAccess(auth.user.id, new Set(ids), auth.session?.hasElevatedPermission);
+    if (ids.some((id) => !owned.has(id))) {
+      throw new BadRequestException(`Only the owner can change ${ownerOnly.join(', ')}`);
+    }
+  }
+
+  const membership = await family.getMembership(auth.user.id);
+  const after = pick(dto, HISTORY_FIELDS);
+  if (!membership || Object.keys(after).length === 0) {
     return;
   }
 
-  const owned = await access.asset.checkOwnerAccess(auth.user.id, new Set(ids), auth.session?.hasElevatedPermission);
-  if (ids.some((id) => !owned.has(id))) {
-    throw new BadRequestException(`Only the owner can change ${changed.join(', ')}`);
-  }
+  const snapshots = await family.getAssetSnapshots(ids);
+  await family.addHistoryMany(
+    snapshots.map((snapshot) => ({
+      familyId: membership.familyId,
+      userId: auth.user.id,
+      action: FamilyHistoryAction.AssetUpdate,
+      entityType: 'asset',
+      entityId: snapshot.id,
+      before: pick(snapshot, Object.keys(after)),
+      after,
+    })),
+  );
 };

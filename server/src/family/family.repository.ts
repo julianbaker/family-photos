@@ -209,6 +209,35 @@ export class FamilyRepository {
     await this.db.insertInto('family_history').values(entry).execute();
   }
 
+  async addHistoryMany(entries: Insertable<FamilyHistoryTable>[]): Promise<void> {
+    if (entries.length > 0) {
+      await this.db.insertInto('family_history').values(entries).execute();
+    }
+  }
+
+  /** The editable fields of these photos as they are now, for the history's "before" values. */
+  @GenerateSql({ params: [[DummyValue.UUID]] })
+  getAssetSnapshots(assetIds: string[]) {
+    return this.db
+      .selectFrom('asset')
+      .leftJoin('asset_exif', 'asset_exif.assetId', 'asset.id')
+      .select([
+        'asset.id',
+        'asset.isFavorite',
+        'asset.visibility',
+        'asset.duplicateId',
+        'asset.livePhotoVideoId',
+        'asset_exif.description',
+        'asset_exif.dateTimeOriginal',
+        'asset_exif.timeZone',
+        'asset_exif.latitude',
+        'asset_exif.longitude',
+        'asset_exif.rating',
+      ])
+      .where('asset.id', '=', anyUuid(assetIds))
+      .execute();
+  }
+
   @GenerateSql({ params: [DummyValue.UUID, { take: 50, skip: 0 }] })
   getHistory(familyId: string, { take, skip }: { take: number; skip: number }) {
     return this.db

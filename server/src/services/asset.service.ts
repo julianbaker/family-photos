@@ -37,7 +37,7 @@ import {
   Permission,
   QueueName,
 } from 'src/enum.js';
-import { requireOwnerForPersonalFields } from 'src/family/family-owner-fields.js';
+import { familyBeforeAssetUpdate } from 'src/family/family-owner-fields.js';
 import { BaseService } from 'src/services/base.service.js';
 import type { JobItem, JobOf } from 'src/types.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
@@ -86,8 +86,8 @@ export class AssetService extends BaseService {
 
   async update(auth: AuthDto, id: string, dto: UpdateAssetDto): Promise<AssetResponseDto> {
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id] });
-    // family fork: favourites, archive and ratings stay with the owner
-    await requireOwnerForPersonalFields(this.accessRepository, auth, [id], dto);
+    // family fork: personal fields stay with the owner; family edits are recorded in the history
+    await familyBeforeAssetUpdate({ access: this.accessRepository, family: this.familyRepository }, auth, [id], dto);
 
     const { description, dateTimeOriginal, latitude, longitude, rating, ...rest } = dto;
     const repos = { asset: this.assetRepository, event: this.eventRepository };
@@ -141,13 +141,8 @@ export class AssetService extends BaseService {
       timeZone,
     } = dto;
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids });
-    // family fork: favourites, archive and ratings stay with the owner
-    await requireOwnerForPersonalFields(this.accessRepository, auth, ids, {
-      isFavorite,
-      visibility,
-      rating,
-      duplicateId,
-    });
+    // family fork: personal fields stay with the owner; family edits are recorded in the history
+    await familyBeforeAssetUpdate({ access: this.accessRepository, family: this.familyRepository }, auth, ids, dto);
 
     const assetDto = omitBy({ isFavorite, visibility, duplicateId }, isUndefined);
     const exifDto = omitBy(

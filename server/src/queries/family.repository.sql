@@ -154,6 +154,25 @@ from
 where
   "clusterGroupId" = $1
 
+-- FamilyRepository.getAssetSnapshots
+select
+  "asset"."id",
+  "asset"."isFavorite",
+  "asset"."visibility",
+  "asset"."duplicateId",
+  "asset"."livePhotoVideoId",
+  "asset_exif"."description",
+  "asset_exif"."dateTimeOriginal",
+  "asset_exif"."timeZone",
+  "asset_exif"."latitude",
+  "asset_exif"."longitude",
+  "asset_exif"."rating"
+from
+  "asset"
+  left join "asset_exif" on "asset_exif"."assetId" = "asset"."id"
+where
+  "asset"."id" = any ($1::uuid[])
+
 -- FamilyRepository.getHistory
 select
   *
