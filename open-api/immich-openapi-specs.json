@@ -7219,6 +7219,315 @@
         "x-immich-state": "Stable"
       }
     },
+    "/family": {
+      "get": {
+        "description": "The family the current user belongs to, with its members.",
+        "operationId": "getMyFamily",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Get my family",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      },
+      "post": {
+        "description": "A server admin creates the family from their own cluster group and becomes its first admin.",
+        "operationId": "createFamily",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyCreateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Create the family",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/history": {
+      "get": {
+        "description": "Who changed what, newest first (family admins only).",
+        "operationId": "getFamilyHistory",
+        "parameters": [
+          {
+            "name": "skip",
+            "required": false,
+            "in": "query",
+            "description": "Entries to skip",
+            "schema": {
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "default": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "take",
+            "required": false,
+            "in": "query",
+            "description": "Number of entries",
+            "schema": {
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FamilyHistoryResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Get the family history",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/members": {
+      "post": {
+        "description": "Add an existing user to the family (family admins only).",
+        "operationId": "addFamilyMember",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyMemberCreateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Add a family member",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/members/{id}": {
+      "delete": {
+        "description": "Remove a member from the family (family admins only).",
+        "operationId": "removeFamilyMember",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Remove a family member",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      },
+      "put": {
+        "description": "Change the role of a family member (family admins only).",
+        "operationId": "updateFamilyMember",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyMemberUpdateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Change a member role",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
     "/jobs": {
       "get": {
         "deprecated": true,
@@ -18599,6 +18908,10 @@
   },
   "tags": [
     {
+      "name": "Family",
+      "description": "A family is one shared library: every member sees the same photos, people and albums."
+    },
+    {
       "name": "Activities",
       "description": "An activity is a like or a comment made by a user on an asset or album."
     },
@@ -22998,6 +23311,178 @@
           "id"
         ],
         "type": "object"
+      },
+      "FamilyCreateDto": {
+        "properties": {
+          "name": {
+            "description": "Family name",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "FamilyHistoryResponseDto": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "after": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          },
+          "before": {
+            "additionalProperties": {},
+            "nullable": true,
+            "type": "object"
+          },
+          "createdAt": {
+            "example": "2024-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "entityId": {
+            "format": "uuid",
+            "nullable": true,
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "userId": {
+            "description": "Who made the change",
+            "format": "uuid",
+            "nullable": true,
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "after",
+          "before",
+          "createdAt",
+          "entityId",
+          "entityType",
+          "id",
+          "userId"
+        ],
+        "type": "object"
+      },
+      "FamilyMemberCreateDto": {
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/FamilyRole",
+            "default": "member"
+          },
+          "userId": {
+            "description": "Existing user to add to the family",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId"
+        ],
+        "type": "object"
+      },
+      "FamilyMemberResponseDto": {
+        "properties": {
+          "email": {
+            "description": "User email",
+            "type": "string"
+          },
+          "joinedAt": {
+            "description": "When the user joined the family",
+            "example": "2024-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "name": {
+            "description": "User name",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/FamilyRole"
+          },
+          "userId": {
+            "description": "User ID",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "joinedAt",
+          "name",
+          "role",
+          "userId"
+        ],
+        "type": "object"
+      },
+      "FamilyMemberUpdateDto": {
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/FamilyRole"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
+      "FamilyResponseDto": {
+        "properties": {
+          "id": {
+            "description": "Family ID",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "members": {
+            "description": "Family members",
+            "items": {
+              "$ref": "#/components/schemas/FamilyMemberResponseDto"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "Family name",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/FamilyRole",
+            "description": "Role of the current user"
+          }
+        },
+        "required": [
+          "id",
+          "members",
+          "name",
+          "role"
+        ],
+        "type": "object"
+      },
+      "FamilyRole": {
+        "description": "Family role",
+        "enum": [
+          "admin",
+          "member",
+          "viewer"
+        ],
+        "type": "string"
       },
       "FoldersResponse": {
         "properties": {

@@ -40,6 +40,8 @@ type EventMap = {
   // album events
   AlbumUpdate: [{ id: string; userIds: string[]; recipientIds: string[] }];
   AlbumInvite: [{ id: string; userId: string; senderName: string }];
+  // family fork
+  AlbumCreate: [{ id: string; userId: string }];
 
   // cluster group events
   ClusterGroupRequest: [{ clusterGroupId: string; userId: string; senderName: string }];

@@ -146,6 +146,8 @@ export const ORIENTATION_TO_SHARP_ROTATION: Record<ExifOrientation, SharpRotatio
 } as const;
 
 export const endpointTags: Record<ApiTag, string> = {
+  // family fork
+  [ApiTag.Family]: 'A family is one shared library: every member sees the same photos, people and albums.',
   [ApiTag.Activities]: 'An activity is a like or a comment made by a user on an asset or album.',
   [ApiTag.Albums]: 'An album is a collection of assets that can be shared with other users or via shared links.',
   [ApiTag.ApiKeys]: 'An api key can be used to programmatically access the Immich API.',

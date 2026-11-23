@@ -16,6 +16,7 @@ import { BulkIdErrorReason, BulkIdResponseDto, BulkIdsDto } from 'src/dtos/asset
 import { AuthDto, isMetadataHidden } from 'src/dtos/auth.dto.js';
 import { MapMarkerResponseDto } from 'src/dtos/map.dto.js';
 import { AlbumUserRole, Permission } from 'src/enum.js';
+import { isFamilyEnabled } from 'src/family/family.flag.js';
 import { AlbumAssetCount } from 'src/repositories/album.repository.js';
 import { BaseService } from 'src/services/base.service.js';
 import { addAssets, removeAssets } from 'src/utils/asset.util.js';
@@ -133,6 +134,11 @@ export class AlbumService extends BaseService {
 
     for (const { userId } of albumUsers) {
       await this.eventRepository.emit('AlbumInvite', { id: album.id, userId, senderName: auth.user.name });
+    }
+
+    // family fork: lets the family service share the new album with every member
+    if (isFamilyEnabled()) {
+      await this.eventRepository.emit('AlbumCreate', { id: album.id, userId: auth.user.id });
     }
 
     return this.mapWithMetadata(album);

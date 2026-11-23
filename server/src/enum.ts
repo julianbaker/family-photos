@@ -1259,6 +1259,8 @@ export enum ConfigVisibility {
 }
 
 export enum ApiTag {
+  // family fork
+  Family = 'Family',
   Activities = 'Activities',
   Albums = 'Albums',
   ApiKeys = 'API keys',
