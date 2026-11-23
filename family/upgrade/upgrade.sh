@@ -48,10 +48,10 @@ for file in $files; do
   if [ "$file" = "$ORDER" ]; then
     { git show "$TARGET:$ORDER"; git show "$FORK:$ORDER"; } | sort -u -t- -k1,1n > "$ORDER"
     git add "$ORDER"
-  elif is_generated "$file"; then
-    take "$TARGET" "$file"
   elif ! exists_in "$BASE" "$file" && exists_in "$FORK" "$file" && ! exists_in "$TARGET" "$file"; then
     take "$FORK" "$file" # the fork's own file
+  elif is_generated "$file"; then
+    take "$TARGET" "$file"
   elif exists_in "$BASE" "$file" && ! git diff --quiet "$BASE" "$FORK" -- "$file"; then
     # the fork changed this upstream file: the release's version plus the fork's changes
     take "$TARGET" "$file"

@@ -46,3 +46,4 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `server/src/commands/index.ts` | registers `FamilySetupCommand` (`immich-admin family-setup`) | creates the family on an existing server during cutover and prints counts to check |
 | `family/rehearsal/` (new), `family/cutover.md` (new) | migration rehearsal (compose, seed, script) and the cutover plan with rollback | fork-only tooling |
 | `server/src/repositories/database.repository.ts` | `allowUnorderedMigrations` is also on when the family feature is on | a release can bring upstream migrations that sort before the fork's already-applied ones; without this the server refuses to start after an upgrade |
+| `family/upgrade/upgrade.sh`, `family/upgrade.md`, `family/UPSTREAM_BASE` (new) | upgrade routine and checklist; the upstream release the fork is based on | fork-only |
