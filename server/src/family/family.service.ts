@@ -12,7 +12,7 @@ import {
 } from 'src/family/family.dto.js';
 import { FamilyHistoryAction, FamilyRole } from 'src/family/family.enum.js';
 import { isFamilyEnabled } from 'src/family/family.flag.js';
-import { FamilyMembership } from 'src/family/family.repository.js';
+import { FamilyMembership, FamilyReport } from 'src/family/family.repository.js';
 import type { ArgOf } from 'src/repositories/event.repository.js';
 import { BaseService } from 'src/services/base.service.js';
 
@@ -48,6 +48,9 @@ export class FamilyService extends BaseService {
       role: FamilyRole.Admin,
       addedById: user.id,
     });
+    // the admin's named people (names, birth dates) become the family's
+    await this.familyRepository.seedFamilyPeople(family.id);
+    await this.familyRepository.mirrorFamilyPeople(family.id);
     await this.familyRepository.addHistory({
       familyId: family.id,
       userId: user.id,
@@ -59,6 +62,34 @@ export class FamilyService extends BaseService {
     });
 
     return this.mapFamily({ familyId: family.id, clusterGroupId: family.clusterGroupId, role: FamilyRole.Admin });
+  }
+
+  /**
+  For `immich-admin family-setup`: turns an existing server admin's library into the family, e.g. when
+  switching a stock Immich server over to the fork. Safe to run again: it then only reports.
+  */
+  async setupFromCli({ email, name }: { email: string; name?: string }): Promise<FamilyReport> {
+    this.requireEnabled();
+    const user = await this.userRepository.getByEmail(email);
+    if (!user) {
+      throw new BadRequestException(`No user with the email ${email}`);
+    }
+    const existing = await this.familyRepository.getMembership(user.id);
+    if (!existing) {
+      await this.create(
+        { user: { id: user.id, name: user.name, email: user.email, isAdmin: user.isAdmin } } as AuthDto,
+        { name },
+      );
+    }
+    const membership = await this.familyRepository.getMembership(user.id);
+    if (!membership) {
+      throw new BadRequestException('The family could not be created');
+    }
+    await this.familyRepository.ensurePartnerMesh(membership.familyId);
+    await this.familyRepository.ensureAlbumUsers(membership.familyId);
+    await this.familyRepository.seedFamilyPeople(membership.familyId);
+    await this.familyRepository.mirrorFamilyPeople(membership.familyId);
+    return this.familyRepository.getReport(membership.familyId);
   }
 
   async addMember(auth: AuthDto, dto: FamilyMemberCreateDto): Promise<FamilyResponseDto> {

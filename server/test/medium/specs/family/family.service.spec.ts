@@ -261,4 +261,52 @@ describe(FamilyService.name, () => {
       );
     });
   });
+
+  describe('setupFromCli', () => {
+    it('turns an existing admin library into the family, keeping names and birth dates', async () => {
+      const { sut, ctx } = setup();
+      const { user: admin } = await ctx.newUser({ isAdmin: true });
+      const { asset } = await ctx.newAsset({ ownerId: admin.id });
+      const { person } = await ctx.newPerson({ ownerId: admin.id, name: 'Grandma', birthDate: new Date('1938-02-03') });
+      await ctx.newPerson({ ownerId: admin.id, name: '' });
+      await ctx.newAssetFace({ assetId: asset.id, personGroupId: person.personGroupId });
+
+      const report = await sut.setupFromCli({ email: admin.email, name: 'Test family' });
+
+      expect(report).toEqual(
+        expect.objectContaining({
+          familyName: 'Test family',
+          members: 1,
+          assets: 1,
+          people: 2,
+          namedPeople: 1,
+          peopleWithBirthDate: 1,
+          faces: 1,
+          facesWithPerson: 1,
+        }),
+      );
+      const familyPerson = await ctx.database
+        .selectFrom('family_person')
+        .selectAll()
+        .where('personGroupId', '=', person.personGroupId)
+        .executeTakeFirstOrThrow();
+      expect(familyPerson.name).toBe('Grandma');
+    });
+
+    it('is safe to run again', async () => {
+      const { sut, ctx } = setup();
+      const { user: admin } = await ctx.newUser({ isAdmin: true });
+      await ctx.newPerson({ ownerId: admin.id, name: 'Grandma' });
+
+      const first = await sut.setupFromCli({ email: admin.email });
+      const second = await sut.setupFromCli({ email: admin.email });
+
+      expect(second).toEqual(first);
+    });
+
+    it('refuses an unknown email', async () => {
+      const { sut } = setup();
+      await expect(sut.setupFromCli({ email: 'nobody@example.com' })).rejects.toThrow('No user with the email');
+    });
+  });
 });

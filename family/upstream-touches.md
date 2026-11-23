@@ -43,3 +43,4 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `web/src/lib/components/asset-viewer/DetailPanel.svelte` | family members can edit captions, places and faces (`canEdit`); adds `FamilyAssetPanel` (people with ages, comments) | the server already allows these edits |
 | `web/src/lib/components/asset-viewer/DetailPanelDate.svelte` | family members can edit dates | same |
 | `web/src/routes/(user)/family/people/`, `.../tree/`, `.../browse/`, `web/src/lib/family/` (new) | people, person page, tree, browse by relation, bio renderer | fork-only |
+| `server/src/commands/index.ts` | registers `FamilySetupCommand` (`immich-admin family-setup`) | creates the family on an existing server during cutover and prints counts to check |

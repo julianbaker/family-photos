@@ -16,6 +16,18 @@ import { anyUuid } from 'src/utils/database.js';
 
 export type FamilyMembership = { familyId: string; clusterGroupId: string; role: FamilyRole };
 
+export type FamilyReport = {
+  familyId: string;
+  familyName: string;
+  members: number;
+  assets: number;
+  people: number;
+  namedPeople: number;
+  peopleWithBirthDate: number;
+  faces: number;
+  facesWithPerson: number;
+};
+
 @Injectable()
 export class FamilyRepository {
   constructor(@InjectKysely() private db: Kysely<DB>) {}
@@ -566,5 +578,30 @@ export class FamilyRepository {
 
   async deleteComment(id: string): Promise<void> {
     await this.db.deleteFrom('family_comment').where('id', '=', id).execute();
+  }
+
+  /** Counts for checking a migration: everything the family should now share. */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  async getReport(familyId: string): Promise<FamilyReport> {
+    const { rows } = await sql<FamilyReport>`
+      select
+        f."id" as "familyId",
+        f."name" as "familyName",
+        (select count(*)::int from "family_member" m where m."familyId" = f."id") as "members",
+        (select count(*)::int from "asset" a join "family_member" m on m."userId" = a."ownerId"
+          where m."familyId" = f."id" and a."deletedAt" is null) as "assets",
+        (select count(*)::int from "family_person" fp where fp."familyId" = f."id") as "people",
+        (select count(*)::int from "family_person" fp where fp."familyId" = f."id" and fp."name" != '') as "namedPeople",
+        (select count(*)::int from "family_person" fp where fp."familyId" = f."id" and fp."birthDate" is not null)
+          as "peopleWithBirthDate",
+        (select count(*)::int from "asset_face" af join "asset" a on a."id" = af."assetId"
+          join "family_member" m on m."userId" = a."ownerId"
+          where m."familyId" = f."id" and af."deletedAt" is null) as "faces",
+        (select count(*)::int from "asset_face" af join "asset" a on a."id" = af."assetId"
+          join "family_member" m on m."userId" = a."ownerId"
+          where m."familyId" = f."id" and af."deletedAt" is null and af."personGroupId" is not null) as "facesWithPerson"
+      from "family" f where f."id" = ${familyId}
+    `.execute(this.db);
+    return rows[0];
   }
 }
