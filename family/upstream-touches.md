@@ -30,3 +30,5 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `server/src/repositories/websocket.repository.ts` | `clientSend` accepts a list of rooms | one send reaches every family member |
 | `server/src/services/job.service.ts` | upload-ready events go to `getUploadRecipients(...)` (the owner, plus family members when the feature is on) | members see each other's new photos live |
 | `server/src/dtos/config.dto.ts` | default `map.lightStyle`/`darkStyle` go through `familyMapStyles(...)` | OpenFreeMap instead of tiles.immich.cloud when the family feature is on |
+| `server/src/services/map.service.ts` | map markers always include the user's family members | relatives don't have to switch on "include partners" for the map |
+| `packages/sdk/src/fetch-client.ts` | regenerated with oazapfts from the spec (additions only) | web uses the `/family` endpoints |

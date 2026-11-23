@@ -1772,6 +1772,54 @@ export type FaceDto = {
     /** Face ID */
     id: string;
 };
+export type FamilyMemberResponseDto = {
+    /** User email */
+    email: string;
+    /** When the user joined the family */
+    joinedAt: string;
+    /** User name */
+    name: string;
+    role: FamilyRole;
+    /** User ID */
+    userId: string;
+};
+export type FamilyResponseDto = {
+    /** Family ID */
+    id: string;
+    /** Family members */
+    members: FamilyMemberResponseDto[];
+    /** Family name */
+    name: string;
+    /** Role of the current user */
+    role: FamilyRole;
+};
+export type FamilyCreateDto = {
+    /** Family name */
+    name?: string;
+};
+export type FamilyHistoryResponseDto = {
+    action: string;
+    after: {
+        [key: string]: any;
+    } | null;
+    before: {
+        [key: string]: any;
+    } | null;
+    createdAt: string;
+    entityId: string | null;
+    entityType: string;
+    id: string;
+    /** Who made the change */
+    userId: string | null;
+};
+export type FamilyMemberCreateDto = {
+    role?: FamilyRole;
+    /** Existing user to add to the family */
+    userId: string;
+};
+export type FamilyMemberUpdateDto = {
+    role: FamilyRole;
+};
 export type QueueStatisticsDto = {
     /** Number of active jobs */
     active: number;
@@ -5630,6 +5678,91 @@ export function reassignFacesById({ id, faceDto }: {
     })));
 }
 /**
+ * Get my family
+ */
+export function getMyFamily(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyResponseDto;
+    }>("/family", {
+        ...opts
+    }));
+}
+/**
+ * Create the family
+ */
+export function createFamily({ familyCreateDto }: {
+    familyCreateDto: FamilyCreateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: FamilyResponseDto;
+    }>("/family", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyCreateDto
+    })));
+}
+/**
+ * Get the family history
+ */
+export function getFamilyHistory({ skip, take }: {
+    skip?: number;
+    take?: number;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyHistoryResponseDto[];
+    }>(`/family/history${QS.query(QS.explode({
+        skip,
+        take
+    }))}`, {
+        ...opts
+    }));
+}
+/**
+ * Add a family member
+ */
+export function addFamilyMember({ familyMemberCreateDto }: {
+    familyMemberCreateDto: FamilyMemberCreateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: FamilyResponseDto;
+    }>("/family/members", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyMemberCreateDto
+    })));
+}
+/**
+ * Remove a family member
+ */
+export function removeFamilyMember({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText(`/family/members/${encodeURIComponent(id)}`, {
+        ...opts,
+        method: "DELETE"
+    }));
+}
+/**
+ * Change a member role
+ */
+export function updateFamilyMember({ id, familyMemberUpdateDto }: {
+    id: string;
+    familyMemberUpdateDto: FamilyMemberUpdateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyResponseDto;
+    }>(`/family/members/${encodeURIComponent(id)}`, oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: familyMemberUpdateDto
+    })));
+}
+/**
  * Retrieve queue counts and status
  */
 export function getQueuesLegacy(opts?: Oazapfts.RequestOpts) {
@@ -8544,6 +8677,11 @@ export enum SourceType {
     MachineLearning = "machine-learning",
     Exif = "exif",
     Manual = "manual"
+}
+export enum FamilyRole {
+    Admin = "admin",
+    Member = "member",
+    Viewer = "viewer"
 }
 export enum ManualJobName {
     PersonCleanup = "person-cleanup",

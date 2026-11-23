@@ -9,10 +9,12 @@ import { AlbumRepository } from 'src/repositories/album.repository.js';
 import { ClusterGroupRepository } from 'src/repositories/cluster-group.repository.js';
 import { EventRepository } from 'src/repositories/event.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
+import { MapRepository } from 'src/repositories/map.repository.js';
 import { PartnerRepository } from 'src/repositories/partner.repository.js';
 import { PersonRepository } from 'src/repositories/person.repository.js';
 import { UserRepository } from 'src/repositories/user.repository.js';
 import { DB } from 'src/schema/index.js';
+import { MapService } from 'src/services/map.service.js';
 import { PartnerService } from 'src/services/partner.service.js';
 import { newMediumService } from 'test/medium.factory.js';
 import { factory } from 'test/small.factory.js';
@@ -108,5 +110,22 @@ describe('family partner sharing', () => {
     const recipients = await getUploadRecipients(family, member.user.id);
     expect(new Set(recipients)).toEqual(new Set([member.user.id, admin.id]));
     expect(await getUploadRecipients(family, friend.id)).toBe(friend.id);
+  });
+
+  it('puts the whole family on the map, even with the partner switch off', async () => {
+    const setupResult = setup();
+    const { admin, member, friend } = await newFamilyAndFriend(setupResult);
+    const map = newMediumService(MapService, {
+      database: defaultDatabase,
+      real: [AlbumRepository, FamilyRepository, PartnerRepository],
+      mock: [LoggingRepository, MapRepository],
+    });
+    map.ctx.getMock(MapRepository).getMapMarkers.mockResolvedValue([]);
+
+    await map.sut.getMapMarkers(member, { withPartners: false });
+
+    const [, userIds] = map.ctx.getMock(MapRepository).getMapMarkers.mock.calls[0];
+    expect(new Set(userIds)).toEqual(new Set([member.user.id, admin.id]));
+    expect(userIds).not.toContain(friend.id);
   });
 });
