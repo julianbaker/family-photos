@@ -3,7 +3,7 @@
   import UserPageLayout from '#lib/components/layouts/UserPageLayout.svelte';
   import FamilyFace from '#lib/family/FamilyFace.svelte';
   import { familyState } from '#lib/family/family-state.svelte.ts';
-  import { lifespan } from '#lib/family/format.ts';
+  import { bySurname, lifespan } from '#lib/family/format.ts';
   import { Route } from '#lib/route.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
   import { createFamilyPerson } from '@immich/sdk';
@@ -24,7 +24,7 @@
   const people = $derived(
     (data.people ?? []).filter((person) => person.name.toLowerCase().includes(search.trim().toLowerCase())),
   );
-  const named = $derived(people.filter((person) => person.name));
+  const named = $derived(people.filter((person) => person.name).sort(bySurname));
   const unnamedCount = $derived(people.length - named.length);
 
   const onAdd = async (event: Event) => {

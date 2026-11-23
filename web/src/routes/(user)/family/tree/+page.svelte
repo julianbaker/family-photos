@@ -5,7 +5,7 @@
   import AddRelative, { type RelativeKind } from '#lib/family/AddRelative.svelte';
   import FamilyFace from '#lib/family/FamilyFace.svelte';
   import { familyState } from '#lib/family/family-state.svelte.ts';
-  import { lifespan } from '#lib/family/format.ts';
+  import { bySurname, lifespan } from '#lib/family/format.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { Route } from '#lib/route.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
@@ -22,7 +22,7 @@
 
   const people = $derived(data.people ?? []);
   const byId = $derived(new Map(people.map((person) => [person.id, person])));
-  const named = $derived(people.filter((person) => person.name).sort((a, b) => a.name.localeCompare(b.name)));
+  const named = $derived(people.filter((person) => person.name).sort(bySurname));
   const iAmLinked = $derived(people.some((person) => person.linkedUserId === authManager.user.id));
 
   let adding = $state<RelativeKind | null>(null);

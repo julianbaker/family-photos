@@ -45,3 +45,18 @@ export const BROWSE_KEYS: Array<{ title: string; keys: string[] }> = [
   { title: 'grandparents', keys: ['grandparent'] },
   { title: 'siblings', keys: ['sibling', 'half-sibling'] },
 ];
+
+const SUFFIX = /^(jr|sr|i{1,3}|iv|v)\.?$/i;
+
+/** The surname to sort by: the last word, skipping "Jr", "III" and the like ("von Rosenberg" sorts under R). */
+const surnameKey = (name: string) => {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  while (words.length > 1 && SUFFIX.test(words.at(-1) ?? '')) {
+    words.pop();
+  }
+  return `${words.at(-1) ?? ''} ${name}`.toLowerCase();
+};
+
+/** Sort people by surname, then by their whole name. */
+export const bySurname = (a: { name: string }, b: { name: string }) =>
+  surnameKey(a.name).localeCompare(surnameKey(b.name));

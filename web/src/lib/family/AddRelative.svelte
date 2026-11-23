@@ -2,6 +2,7 @@
   // family fork: add a parent, child, partner or sibling to someone, choosing an existing person or
   // typing a new name (for example a great-grandparent with no photos). Used on the person page and
   // in the tree, where the gaps are.
+  import { bySurname } from '#lib/family/format.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
   import {
     FamilyRelationType,
@@ -37,8 +38,8 @@
     { value: '', label: 'Choose someone' },
     ...people
       .filter((item) => item.id !== person.id && item.name)
-      .map((item) => ({ value: item.id, label: item.name }))
-      .sort((a, b) => a.label.localeCompare(b.label)),
+      .sort(bySurname)
+      .map((item) => ({ value: item.id, label: item.name })),
   ]);
 
   const canSave = $derived(!!existingId || !!newName.trim());

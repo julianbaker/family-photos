@@ -5,7 +5,7 @@
   import FamilyFace from '#lib/family/FamilyFace.svelte';
   import { renderBio } from '#lib/family/bio.ts';
   import { familyState } from '#lib/family/family-state.svelte.ts';
-  import { BROWSE_KEYS, RELATIVE_GROUPS, formatDate, lifespan } from '#lib/family/format.ts';
+  import { BROWSE_KEYS, RELATIVE_GROUPS, bySurname, formatDate, lifespan } from '#lib/family/format.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { Route } from '#lib/route.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
@@ -141,8 +141,8 @@
   const others = $derived(
     data.people
       .filter((item) => item.id !== person.id && item.name)
-      .map((item) => ({ value: item.id, label: item.name }))
-      .sort((a, b) => a.label.localeCompare(b.label)),
+      .sort(bySurname)
+      .map((item) => ({ value: item.id, label: item.name })),
   );
 
   const addRelation = async (event: Event) => {
