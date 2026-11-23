@@ -60,7 +60,14 @@ export const reverseGeocodeMaxDistance = 25_000;
 export const MOBILE_REDIRECT = 'app.immich:///oauth-callback';
 export const LOGIN_URL = '/auth/login?autoLaunch=0';
 
-export const excludePaths = ['/.well-known/immich', '/.well-known/webauthn', '/custom.css', '/favicon.ico'];
+export const excludePaths = [
+  '/.well-known/immich',
+  '/.well-known/webauthn',
+  '/custom.css',
+  '/favicon.ico',
+  // family fork: lets iPhones open invite links in the app
+  '/.well-known/apple-app-site-association',
+];
 
 export const FACE_THUMBNAIL_SIZE = 250;
 

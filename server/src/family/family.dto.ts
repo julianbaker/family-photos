@@ -3,7 +3,7 @@ import z from 'zod';
 import { FamilyRole } from 'src/family/family.enum.js';
 import { isoDatetimeToDate } from 'src/validation.js';
 
-const FamilyRoleSchema = z.enum(FamilyRole).describe('Family role').meta({ id: 'FamilyRole' });
+export const FamilyRoleSchema = z.enum(FamilyRole).describe('Family role').meta({ id: 'FamilyRole' });
 
 const FamilyCreateSchema = z
   .object({ name: z.string().trim().min(1).max(100).optional().describe('Family name') })

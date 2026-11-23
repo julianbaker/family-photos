@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { Insertable, Kysely, sql } from 'kysely';
+import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { InjectKysely } from 'nestjs-kysely';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
 import { AlbumUserRole } from 'src/enum.js';
-import { FamilyRole } from 'src/family/family.enum.js';
+import { FamilyInviteRequestStatus, FamilyRole } from 'src/family/family.enum.js';
 import { FamilyHistoryTable } from 'src/family/schema/family-history.table.js';
+import { FamilyInviteRequestTable } from 'src/family/schema/family-invite-request.table.js';
+import { FamilyInviteTable } from 'src/family/schema/family-invite.table.js';
 import { DB } from 'src/schema/index.js';
 import { anyUuid } from 'src/utils/database.js';
 
@@ -248,5 +251,139 @@ export class FamilyRepository {
       .limit(take)
       .offset(skip)
       .execute();
+  }
+
+  // invites
+
+  createInvite(invite: Insertable<FamilyInviteTable>) {
+    return this.db.insertInto('family_invite').values(invite).returningAll().executeTakeFirstOrThrow();
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID] })
+  getInvites(familyId: string) {
+    return this.db
+      .selectFrom('family_invite')
+      .selectAll('family_invite')
+      .select((eb) =>
+        jsonArrayFrom(
+          eb
+            .selectFrom('family_invite_use')
+            .innerJoin('user', 'user.id', 'family_invite_use.userId')
+            .select(['user.id as userId', 'user.name', 'family_invite_use.usedAt'])
+            .whereRef('family_invite_use.inviteId', '=', 'family_invite.id')
+            .orderBy('family_invite_use.usedAt', 'asc'),
+        ).as('usedBy'),
+      )
+      .where('family_invite.familyId', '=', familyId)
+      .orderBy('family_invite.createdAt', 'desc')
+      .execute();
+  }
+
+  @GenerateSql({ params: [DummyValue.BUFFER] })
+  getInviteByTokenHash(tokenHash: Buffer) {
+    return this.db
+      .selectFrom('family_invite')
+      .innerJoin('family', 'family.id', 'family_invite.familyId')
+      .selectAll('family_invite')
+      .select(['family.name as familyName', 'family.clusterGroupId'])
+      .where('family_invite.tokenHash', '=', tokenHash)
+      .executeTakeFirst();
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  revokeInvite(id: string, familyId: string) {
+    return this.db
+      .updateTable('family_invite')
+      .set({ revokedAt: new Date() })
+      .where('id', '=', id)
+      .where('familyId', '=', familyId)
+      .where('revokedAt', 'is', null)
+      .returningAll()
+      .executeTakeFirst();
+  }
+
+  /** Takes one use of a still-valid invite, atomically. Returns nothing if the link can't be used. */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  consumeInvite(id: string) {
+    return this.db
+      .updateTable('family_invite')
+      .set((eb) => ({ uses: eb('uses', '+', 1) }))
+      .where('id', '=', id)
+      .where('revokedAt', 'is', null)
+      .where('expiresAt', '>', new Date())
+      .where((eb) => eb.or([eb('maxUses', 'is', null), eb('uses', '<', eb.ref('maxUses'))]))
+      .returningAll()
+      .executeTakeFirst();
+  }
+
+  /** Records who joined through an invite; once a link is used up, its copy on a request is cleared. */
+  async addInviteUse(inviteId: string, userId: string): Promise<void> {
+    await this.db.insertInto('family_invite_use').values({ inviteId, userId }).execute();
+    await this.db
+      .updateTable('family_invite_request')
+      .set({ inviteToken: null })
+      .where('inviteId', '=', inviteId)
+      .where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom('family_invite')
+            .select('family_invite.id')
+            .whereRef('family_invite.id', '=', 'family_invite_request.inviteId')
+            .where('family_invite.maxUses', 'is not', null)
+            .whereRef('family_invite.uses', '>=', 'family_invite.maxUses'),
+        ),
+      )
+      .execute();
+  }
+
+  // invite requests
+
+  createInviteRequest(request: Insertable<FamilyInviteRequestTable>) {
+    return this.db.insertInto('family_invite_request').values(request).returningAll().executeTakeFirstOrThrow();
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, { requestedById: DummyValue.UUID }] })
+  getInviteRequests(familyId: string, options: { requestedById?: string } = {}) {
+    return this.db
+      .selectFrom('family_invite_request')
+      .innerJoin('user', 'user.id', 'family_invite_request.requestedById')
+      .selectAll('family_invite_request')
+      .select('user.name as requestedByName')
+      .where('family_invite_request.familyId', '=', familyId)
+      .$if(!!options.requestedById, (qb) =>
+        qb.where('family_invite_request.requestedById', '=', options.requestedById!),
+      )
+      .orderBy('family_invite_request.createdAt', 'desc')
+      .execute();
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  getInviteRequest(id: string, familyId: string) {
+    return this.db
+      .selectFrom('family_invite_request')
+      .selectAll()
+      .where('id', '=', id)
+      .where('familyId', '=', familyId)
+      .executeTakeFirst();
+  }
+
+  /** Decides a pending request; returns nothing if it was already decided. */
+  decideInviteRequest(
+    id: string,
+    decision: { status: FamilyInviteRequestStatus; decidedById: string; inviteId?: string; inviteToken?: string },
+  ) {
+    return this.db
+      .updateTable('family_invite_request')
+      .set({
+        status: decision.status,
+        decidedById: decision.decidedById,
+        decidedAt: new Date(),
+        inviteId: decision.inviteId ?? null,
+        inviteToken: decision.inviteToken ?? null,
+      })
+      .where('id', '=', id)
+      .where('status', '=', FamilyInviteRequestStatus.Pending)
+      .returningAll()
+      .executeTakeFirst();
   }
 }

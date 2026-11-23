@@ -1812,6 +1812,86 @@ export type FamilyHistoryResponseDto = {
     /** Who made the change */
     userId: string | null;
 };
+export type FamilyInviteRequestResponseDto = {
+    createdAt: string;
+    decidedAt: string | null;
+    id: string;
+    name: string;
+    note: string | null;
+    /** The approved link path, until it is used */
+    path: string | null;
+    requestedById: string;
+    requestedByName: string;
+    status: FamilyInviteRequestStatus;
+};
+export type FamilyInviteRequestCreateDto = {
+    /** Who should be invited */
+    name: string;
+    /** Anything the admin should know */
+    note?: string;
+};
+export type FamilyInviteRequestApproveDto = {
+    /** Days until the link expires */
+    expiresInDays?: number;
+    /** How many people can join with the link; null for any number until it expires */
+    maxUses?: number | null;
+    /** Role the new member gets */
+    role?: FamilyRole;
+};
+export type FamilyInviteResponseDto = {
+    createdAt: string;
+    expiresAt: string;
+    id: string;
+    label: string | null;
+    maxUses: number | null;
+    /** The link path, e.g. /invite/<token>; only returned when created */
+    path?: string;
+    revokedAt: string | null;
+    role: FamilyRole;
+    status: FamilyInviteStatus;
+    /** The link token; only returned when the link is created */
+    token?: string;
+    /** Who joined with this link */
+    usedBy: {
+        name: string;
+        usedAt: string;
+        userId: string;
+    }[];
+    uses: number;
+};
+export type FamilyInviteCreateDto = {
+    /** Days until the link expires */
+    expiresInDays?: number;
+    /** Note for admins, e.g. who the link is for */
+    label?: string;
+    /** How many people can join with the link; null for any number until it expires */
+    maxUses?: number | null;
+    /** Role the new member gets */
+    role?: FamilyRole;
+};
+export type FamilyInviteAcceptDto = {
+    /** Your email, used to sign in */
+    email: string;
+    /** Your name */
+    name: string;
+    /** Password, at least 8 characters */
+    password: string;
+    token: string;
+};
+export type FamilyInviteTokenDto = {
+    /** Invite link token */
+    token: string;
+};
+export type FamilyInvitePreviewDto = {
+    /** Where to get the app, if configured */
+    appUrl: string | null;
+    expiresAt: string;
+    familyName: string;
+    role: FamilyRole;
+    status: FamilyInviteStatus;
+    /** Whether the link can still be used */
+    valid: boolean;
+};
 export type FamilyMemberCreateDto = {
     role?: FamilyRole;
     /** Existing user to add to the family */
@@ -5721,6 +5801,126 @@ export function getFamilyHistory({ skip, take }: {
     }));
 }
 /**
+ * List invite requests
+ */
+export function getFamilyInviteRequests(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyInviteRequestResponseDto[];
+    }>("/family/invite-requests", {
+        ...opts
+    }));
+}
+/**
+ * Ask for an invite
+ */
+export function createFamilyInviteRequest({ familyInviteRequestCreateDto }: {
+    familyInviteRequestCreateDto: FamilyInviteRequestCreateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: FamilyInviteRequestResponseDto;
+    }>("/family/invite-requests", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyInviteRequestCreateDto
+    })));
+}
+/**
+ * Approve an invite request
+ */
+export function approveFamilyInviteRequest({ id, familyInviteRequestApproveDto }: {
+    id: string;
+    familyInviteRequestApproveDto: FamilyInviteRequestApproveDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: FamilyInviteRequestResponseDto;
+    }>(`/family/invite-requests/${encodeURIComponent(id)}/approve`, oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyInviteRequestApproveDto
+    })));
+}
+/**
+ * Decline an invite request
+ */
+export function declineFamilyInviteRequest({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText(`/family/invite-requests/${encodeURIComponent(id)}/decline`, {
+        ...opts,
+        method: "POST"
+    }));
+}
+/**
+ * List invite links
+ */
+export function getFamilyInvites(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyInviteResponseDto[];
+    }>("/family/invites", {
+        ...opts
+    }));
+}
+/**
+ * Create an invite link
+ */
+export function createFamilyInvite({ familyInviteCreateDto }: {
+    familyInviteCreateDto: FamilyInviteCreateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: FamilyInviteResponseDto;
+    }>("/family/invites", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyInviteCreateDto
+    })));
+}
+/**
+ * Join with an invite link
+ */
+export function acceptFamilyInvite({ familyInviteAcceptDto }: {
+    familyInviteAcceptDto: FamilyInviteAcceptDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: LoginResponseDto;
+    }>("/family/invites/accept", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyInviteAcceptDto
+    })));
+}
+/**
+ * Preview an invite link
+ */
+export function previewFamilyInvite({ familyInviteTokenDto }: {
+    familyInviteTokenDto: FamilyInviteTokenDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyInvitePreviewDto;
+    }>("/family/invites/preview", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyInviteTokenDto
+    })));
+}
+/**
+ * Revoke an invite link
+ */
+export function revokeFamilyInvite({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText(`/family/invites/${encodeURIComponent(id)}`, {
+        ...opts,
+        method: "DELETE"
+    }));
+}
+/**
  * Add a family member
  */
 export function addFamilyMember({ familyMemberCreateDto }: {
@@ -8682,6 +8882,17 @@ export enum FamilyRole {
     Admin = "admin",
     Member = "member",
     Viewer = "viewer"
+}
+export enum FamilyInviteRequestStatus {
+    Pending = "pending",
+    Approved = "approved",
+    Declined = "declined"
+}
+export enum FamilyInviteStatus {
+    Active = "active",
+    UsedUp = "used-up",
+    Expired = "expired",
+    Revoked = "revoked"
 }
 export enum ManualJobName {
     PersonCleanup = "person-cleanup",

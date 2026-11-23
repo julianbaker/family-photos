@@ -1,3 +1,4 @@
+import { FamilyInviteService } from 'src/family/family-invite.service.js';
 import { FamilyService } from 'src/family/family.service.js';
 import { ActivityService } from 'src/services/activity.service.js';
 import { AlbumService } from 'src/services/album.service.js';
@@ -113,4 +114,5 @@ export const services = [
   WorkflowService,
   // family fork
   FamilyService,
+  FamilyInviteService,
 ];

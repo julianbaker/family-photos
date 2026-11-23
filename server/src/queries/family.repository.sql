@@ -186,3 +186,90 @@ limit
   $2
 offset
   $3
+
+-- FamilyRepository.getInvites
+select
+  "family_invite".*,
+  (
+    select
+      coalesce(json_agg(agg), '[]')
+    from
+      (
+        select
+          "user"."id" as "userId",
+          "user"."name",
+          "family_invite_use"."usedAt"
+        from
+          "family_invite_use"
+          inner join "user" on "user"."id" = "family_invite_use"."userId"
+        where
+          "family_invite_use"."inviteId" = "family_invite"."id"
+        order by
+          "family_invite_use"."usedAt" asc
+      ) as agg
+  ) as "usedBy"
+from
+  "family_invite"
+where
+  "family_invite"."familyId" = $1
+order by
+  "family_invite"."createdAt" desc
+
+-- FamilyRepository.getInviteByTokenHash
+select
+  "family_invite".*,
+  "family"."name" as "familyName",
+  "family"."clusterGroupId"
+from
+  "family_invite"
+  inner join "family" on "family"."id" = "family_invite"."familyId"
+where
+  "family_invite"."tokenHash" = $1
+
+-- FamilyRepository.revokeInvite
+update "family_invite"
+set
+  "revokedAt" = $1
+where
+  "id" = $2
+  and "familyId" = $3
+  and "revokedAt" is null
+returning
+  *
+
+-- FamilyRepository.consumeInvite
+update "family_invite"
+set
+  "uses" = "uses" + $1
+where
+  "id" = $2
+  and "revokedAt" is null
+  and "expiresAt" > $3
+  and (
+    "maxUses" is null
+    or "uses" < "maxUses"
+  )
+returning
+  *
+
+-- FamilyRepository.getInviteRequests
+select
+  "family_invite_request".*,
+  "user"."name" as "requestedByName"
+from
+  "family_invite_request"
+  inner join "user" on "user"."id" = "family_invite_request"."requestedById"
+where
+  "family_invite_request"."familyId" = $1
+  and "family_invite_request"."requestedById" = $2
+order by
+  "family_invite_request"."createdAt" desc
+
+-- FamilyRepository.getInviteRequest
+select
+  *
+from
+  "family_invite_request"
+where
+  "id" = $1
+  and "familyId" = $2

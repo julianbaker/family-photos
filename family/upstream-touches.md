@@ -33,3 +33,5 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `server/src/services/map.service.ts` | map markers always include the user's family members | relatives don't have to switch on "include partners" for the map |
 | `packages/sdk/src/fetch-client.ts` | regenerated with oazapfts from the spec (additions only) | web uses the `/family` endpoints |
 | `server/helmet.json` | `connect-src` allows `https://tiles.openfreemap.org` | otherwise the browser blocks the OpenFreeMap tiles and the map is blank |
+| `server/src/constants.ts` | `excludePaths` adds `/.well-known/apple-app-site-association` | served at the site root so iPhones open invite links in the app |
+| `server/src/schema/migrations/ORDER` | appends `1795452946998-FamilyAddInvites` | invite tables |

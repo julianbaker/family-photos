@@ -52,6 +52,9 @@ import { AssetOcrTable } from 'src/schema/tables/asset-ocr.table.js';
 import { AssetTable } from 'src/schema/tables/asset.table.js';
 import { AuthChallengeTable } from 'src/schema/tables/auth-challenge.table.js';
 import { FamilyHistoryTable } from 'src/family/schema/family-history.table.js';
+import { FamilyInviteRequestTable } from 'src/family/schema/family-invite-request.table.js';
+import { FamilyInviteUseTable } from 'src/family/schema/family-invite-use.table.js';
+import { FamilyInviteTable } from 'src/family/schema/family-invite.table.js';
 import { FamilyMemberTable } from 'src/family/schema/family-member.table.js';
 import { FamilyTable } from 'src/family/schema/family.table.js';
 import { ClusterGroupRequestTable } from 'src/schema/tables/cluster-group-request.table.js';
@@ -135,6 +138,9 @@ export class ImmichDatabase {
     FamilyTable,
     FamilyMemberTable,
     FamilyHistoryTable,
+    FamilyInviteTable,
+    FamilyInviteUseTable,
+    FamilyInviteRequestTable,
     FaceSearchTable,
     GeodataPlacesTable,
     IntegrityReportTable,
@@ -290,6 +296,9 @@ export interface DB {
   family: FamilyTable;
   family_member: FamilyMemberTable;
   family_history: FamilyHistoryTable;
+  family_invite: FamilyInviteTable;
+  family_invite_use: FamilyInviteUseTable;
+  family_invite_request: FamilyInviteRequestTable;
 
   session: SessionTable;
   session_sync_checkpoint: SessionSyncCheckpointTable;

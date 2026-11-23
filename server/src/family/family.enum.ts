@@ -13,4 +13,23 @@ export enum FamilyHistoryAction {
   MemberRemove = 'member.remove',
   MemberRoleUpdate = 'member.role.update',
   AssetUpdate = 'asset.update',
+  InviteCreate = 'invite.create',
+  InviteRevoke = 'invite.revoke',
+  InviteAccept = 'invite.accept',
+  InviteRequestCreate = 'invite-request.create',
+  InviteRequestApprove = 'invite-request.approve',
+  InviteRequestDecline = 'invite-request.decline',
+}
+
+export enum FamilyInviteRequestStatus {
+  Pending = 'pending',
+  Approved = 'approved',
+  Declined = 'declined',
+}
+
+export enum FamilyInviteStatus {
+  Active = 'active',
+  UsedUp = 'used-up',
+  Expired = 'expired',
+  Revoked = 'revoked',
 }
