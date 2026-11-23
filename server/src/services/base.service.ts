@@ -65,6 +65,7 @@ import { ViewRepository } from 'src/repositories/view-repository.js';
 import { WebAuthnRepository } from 'src/repositories/webauthn.repository.js';
 import { WebsocketRepository } from 'src/repositories/websocket.repository.js';
 import { WorkflowRepository } from 'src/repositories/workflow.repository.js';
+import { FamilyRepository } from 'src/family/family.repository.js';
 import { UserTable } from 'src/schema/tables/user.table.js';
 import type { LoginDetails } from 'src/services/auth.service.js';
 import type { ClassConstructor } from 'src/types.js';
@@ -138,6 +139,8 @@ export const BASE_SERVICE_DEPENDENCIES = [
   WebAuthnRepository,
   WebsocketRepository,
   WorkflowRepository,
+  // family fork: keep last
+  FamilyRepository,
 ] as const;
 
 @Injectable()
@@ -204,6 +207,8 @@ export class BaseService {
     protected webAuthnRepository: WebAuthnRepository,
     protected websocketRepository: WebsocketRepository,
     protected workflowRepository: WorkflowRepository,
+    // family fork: keep last
+    protected familyRepository: FamilyRepository,
   ) {
     this.logger.setContext(this.constructor.name);
     this.storageCore = StorageCore.create(
@@ -279,6 +284,7 @@ export class BaseService {
       ctx.webAuthnRepository,
       ctx.websocketRepository,
       ctx.workflowRepository,
+      ctx.familyRepository,
     );
 
     service.logger.setContext(BaseService.name);

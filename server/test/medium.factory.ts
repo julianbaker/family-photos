@@ -71,6 +71,7 @@ import { ViewRepository } from 'src/repositories/view-repository.js';
 import { WebAuthnRepository } from 'src/repositories/webauthn.repository.js';
 import { WebsocketRepository } from 'src/repositories/websocket.repository.js';
 import { WorkflowRepository } from 'src/repositories/workflow.repository.js';
+import { FamilyRepository } from 'src/family/family.repository.js';
 import { DB } from 'src/schema/index.js';
 import { AlbumTable } from 'src/schema/tables/album.table.js';
 import { AssetExifTable } from 'src/schema/tables/asset-exif.table.js';
@@ -544,7 +545,8 @@ const newRealRepository = <T extends BaseServiceDeps[number]>(key: T, db: Kysely
     case UserRepository:
     case VersionHistoryRepository:
     case ViewRepository:
-    case WorkflowRepository: {
+    case WorkflowRepository:
+    case FamilyRepository: {
       return new key(db) as InstanceType<T>;
     }
 
@@ -613,7 +615,8 @@ const newMockRepository = <T>(key: ClassConstructor<T>) => {
     case UserRepository:
     case VersionHistoryRepository:
     case TagRepository:
-    case WorkflowRepository: {
+    case WorkflowRepository:
+    case FamilyRepository: {
       return automock(key);
     }
 

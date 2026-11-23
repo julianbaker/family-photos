@@ -14,6 +14,7 @@ import { Duplex, Readable, Writable } from 'node:stream';
 import { PNG } from 'pngjs';
 import { Mock, Mocked, assert, vitest } from 'vitest';
 import { UploadFieldName } from 'src/dtos/asset-media.dto.js';
+import { FamilyRepository } from 'src/family/family.repository.js';
 import { AssetUploadInterceptor } from 'src/middleware/asset-upload.interceptor.js';
 import { AuthGuard } from 'src/middleware/auth.guard.js';
 import { FileUploadInterceptor } from 'src/middleware/file-upload.interceptor.js';
@@ -298,6 +299,8 @@ export type ServiceOverrides = {
   webAuthn: WebAuthnRepository;
   websocket: WebsocketRepository;
   workflow: WorkflowRepository;
+  // family fork
+  family: FamilyRepository;
 };
 
 type As<T> = T extends RepositoryInterface<infer U> ? U : never;
@@ -392,6 +395,7 @@ export const getMocks = () => {
     // eslint-disable-next-line no-sparse-arrays
     websocket: automock(WebsocketRepository, { args: [, loggerMock], strict: false }),
     workflow: automock(WorkflowRepository, { strict: true }),
+    family: automock(FamilyRepository, { strict: false }),
   };
 
   // every new user gets a cluster group, which is incidental to most tests
@@ -466,6 +470,7 @@ export const newTestService = <T extends BaseService>(
     overrides.webAuthn || (mocks.webAuthn as As<WebAuthnRepository>),
     overrides.websocket || (mocks.websocket as As<WebsocketRepository>),
     overrides.workflow || (mocks.workflow as As<WorkflowRepository>),
+    overrides.family || (mocks.family as As<FamilyRepository>),
   );
 
   return {

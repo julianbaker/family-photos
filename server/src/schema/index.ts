@@ -51,6 +51,9 @@ import { AssetOcrAuditTable } from 'src/schema/tables/asset-ocr-audit.table.js';
 import { AssetOcrTable } from 'src/schema/tables/asset-ocr.table.js';
 import { AssetTable } from 'src/schema/tables/asset.table.js';
 import { AuthChallengeTable } from 'src/schema/tables/auth-challenge.table.js';
+import { FamilyHistoryTable } from 'src/family/schema/family-history.table.js';
+import { FamilyMemberTable } from 'src/family/schema/family-member.table.js';
+import { FamilyTable } from 'src/family/schema/family.table.js';
 import { ClusterGroupRequestTable } from 'src/schema/tables/cluster-group-request.table.js';
 import { ClusterGroupTable } from 'src/schema/tables/cluster-group.table.js';
 import { FaceSearchTable } from 'src/schema/tables/face-search.table.js';
@@ -128,6 +131,10 @@ export class ImmichDatabase {
     AssetExifTable,
     ClusterGroupTable,
     ClusterGroupRequestTable,
+    // family fork
+    FamilyTable,
+    FamilyMemberTable,
+    FamilyHistoryTable,
     FaceSearchTable,
     GeodataPlacesTable,
     IntegrityReportTable,
@@ -278,6 +285,11 @@ export interface DB {
 
   cluster_group: ClusterGroupTable;
   cluster_group_request: ClusterGroupRequestTable;
+
+  // family fork
+  family: FamilyTable;
+  family_member: FamilyMemberTable;
+  family_history: FamilyHistoryTable;
 
   session: SessionTable;
   session_sync_checkpoint: SessionSyncCheckpointTable;
