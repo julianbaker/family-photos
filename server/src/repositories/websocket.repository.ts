@@ -106,7 +106,8 @@ export class WebsocketRepository implements OnGatewayConnection, OnGatewayDiscon
     await client.leave(client.nsp.name);
   }
 
-  clientSend<T extends keyof ClientEventMap>(event: T, room: string, ...data: ClientEventMap[T]) {
+  // family fork: `room` may be a list, so family members hear about each other's uploads
+  clientSend<T extends keyof ClientEventMap>(event: T, room: string | string[], ...data: ClientEventMap[T]) {
     this.server?.to(room).emit(event, ...data);
   }
 

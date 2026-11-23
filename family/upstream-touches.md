@@ -27,3 +27,5 @@ Every upstream file the fork changes, and why. Check these first when merging an
 - `migrations:generate` prints spurious `DROP TYPE`/`CREATE TYPE` pairs for upstream enums (it compares enum values in a different order). Delete those lines from generated fork migrations, and write `down` with the overrides first and the tables last.
 | `server/src/services/asset.service.ts` | `update` and `updateAll` call `requireOwnerForPersonalFields` | favourites, archive/hidden/locked, ratings, Live Photo links and duplicate choices stay with the owner |
 | `server/src/services/partner.service.ts` | `search` leaves out family members; `remove` and `update` refuse family pairs | the partner rows between members are managed by the server and never exposed |
+| `server/src/repositories/websocket.repository.ts` | `clientSend` accepts a list of rooms | one send reaches every family member |
+| `server/src/services/job.service.ts` | upload-ready events go to `getUploadRecipients(...)` (the owner, plus family members when the feature is on) | members see each other's new photos live |

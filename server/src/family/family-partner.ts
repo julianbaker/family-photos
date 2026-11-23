@@ -29,3 +29,9 @@ export const requireNotFamilyPartner = async (family: FamilyRepository, userId: 
     throw new BadRequestException('Sharing within the family is automatic and cannot be changed');
   }
 };
+
+/** Who hears about a new upload: the owner, and with the family on, every other member too. */
+export const getUploadRecipients = async (family: FamilyRepository, ownerId: string): Promise<string | string[]> => {
+  const peers = await getFamilyPeerIds(family, ownerId);
+  return peers.size === 0 ? ownerId : [ownerId, ...peers];
+};

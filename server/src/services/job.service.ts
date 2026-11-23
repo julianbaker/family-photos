@@ -3,6 +3,7 @@ import { OnEvent } from 'src/decorators.js';
 import { mapAsset } from 'src/dtos/asset-response.dto.js';
 import { JobCreateDto } from 'src/dtos/job.dto.js';
 import { AssetType, AssetVisibility, IntegrityReport, JobName, JobStatus, ManualJobName } from 'src/enum.js';
+import { getUploadRecipients } from 'src/family/family-partner.js';
 import { ArgsOf } from 'src/repositories/event.repository.js';
 import { BaseService } from 'src/services/base.service.js';
 import type { JobItem } from 'src/types.js';
@@ -185,10 +186,12 @@ export class JobService extends BaseService {
 
         await this.jobRepository.queueAll(jobs);
         if (asset.visibility === AssetVisibility.Timeline || asset.visibility === AssetVisibility.Archive) {
-          this.websocketRepository.clientSend('on_upload_success', asset.ownerId, mapAsset(asset));
+          // family fork: every family member hears about a new upload
+          const recipients = await getUploadRecipients(this.familyRepository, asset.ownerId);
+          this.websocketRepository.clientSend('on_upload_success', recipients, mapAsset(asset));
           if (asset.exifInfo) {
             const exif = asset.exifInfo;
-            this.websocketRepository.clientSend('AssetUploadReadyV2', asset.ownerId, {
+            this.websocketRepository.clientSend('AssetUploadReadyV2', recipients, {
               // TODO remove `on_upload_success` and then modify the query to select only the required fields)
               asset: {
                 id: asset.id,

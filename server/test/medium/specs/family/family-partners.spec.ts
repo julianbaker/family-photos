@@ -1,5 +1,6 @@
 import { Kysely } from 'kysely';
 import { SharingDirection } from 'src/enum.js';
+import { getUploadRecipients } from 'src/family/family-partner.js';
 import { FamilyRole } from 'src/family/family.enum.js';
 import { FamilyRepository } from 'src/family/family.repository.js';
 import { FamilyService } from 'src/family/family.service.js';
@@ -97,5 +98,15 @@ describe('family partner sharing', () => {
     await expect(setupResult.sut.update(member, friend.id, { inTimeline: false })).resolves.toEqual(
       expect.objectContaining({ id: friend.id, inTimeline: false }),
     );
+  });
+
+  it('tells every family member about a new upload, and only the owner outside the family', async () => {
+    const setupResult = setup();
+    const { admin, member, friend } = await newFamilyAndFriend(setupResult);
+    const family = setupResult.ctx.get(FamilyRepository);
+
+    const recipients = await getUploadRecipients(family, member.user.id);
+    expect(new Set(recipients)).toEqual(new Set([member.user.id, admin.id]));
+    expect(await getUploadRecipients(family, friend.id)).toBe(friend.id);
   });
 });
