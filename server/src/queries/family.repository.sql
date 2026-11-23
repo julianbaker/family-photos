@@ -356,6 +356,21 @@ where
   "familyId" = $1
   and "personGroupId" = $2
 
+-- FamilyRepository.getFamilyThumbnailPath
+select
+  "person"."thumbnailPath"
+from
+  "person"
+  inner join "family_member" on "family_member"."userId" = "person"."ownerId"
+  inner join "family_person" on "family_person"."personGroupId" = "person"."personGroupId"
+where
+  "family_member"."familyId" = $1
+  and "family_person"."familyId" = $2
+  and "person"."personGroupId" = $3
+  and "person"."thumbnailPath" != $4
+limit
+  $5
+
 -- FamilyRepository.getRelations
 select
   *

@@ -213,7 +213,11 @@ export class PersonService extends BaseService {
       ids: [{ personGroupId, ownerId: auth.user.id }],
     });
     const personGroup = await this.personRepository.getForThumbnail({ ownerId: auth.user.id, personGroupId });
-    const thumbnailPath = personGroup?.thumbnailPath || personGroup?.sharedThumbnailPath;
+    const thumbnailPath =
+      personGroup?.thumbnailPath ||
+      personGroup?.sharedThumbnailPath ||
+      // family fork: another member's copy of the same person
+      (await BaseService.create(FamilyPeopleService, this).getThumbnailFallback(auth, personGroupId));
     if (!thumbnailPath) {
       throw new NotFoundException();
     }

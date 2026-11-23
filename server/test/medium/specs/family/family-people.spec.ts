@@ -266,6 +266,24 @@ describe(FamilyPeopleService.name, () => {
     });
   });
 
+  describe('face thumbnails', () => {
+    it('shows a member the face from another member’s copy of the person', async () => {
+      const setupResult = setup();
+      const { ctx, stockPeople } = setupResult;
+      const { admin, memberAuth, amyId } = await newFamily(setupResult);
+      await ctx.database
+        .updateTable('person')
+        .set({ thumbnailPath: '/thumbs/amy.jpeg' })
+        .where('ownerId', '=', admin.id)
+        .where('personGroupId', '=', amyId)
+        .execute();
+
+      const file = await stockPeople.getThumbnail(memberAuth, amyId);
+
+      expect(file.path).toBe('/thumbs/amy.jpeg');
+    });
+  });
+
   describe('merging', () => {
     it('merges every member’s copy, and keeps details, relations and faces', async () => {
       const setupResult = setup();

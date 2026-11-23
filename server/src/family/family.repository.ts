@@ -558,6 +558,27 @@ export class FamilyRepository {
     });
   }
 
+  /**
+  A face thumbnail for a family person from any member's copy. Members' copies made by the mirroring
+  have no face crop of their own, so the stock lookup (the viewer's own copy, or one shared with
+  them) finds nothing for people whose faces are in someone else's photos.
+  */
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  async getFamilyThumbnailPath(familyId: string, personGroupId: string): Promise<string | undefined> {
+    const row = await this.db
+      .selectFrom('person')
+      .innerJoin('family_member', 'family_member.userId', 'person.ownerId')
+      .innerJoin('family_person', 'family_person.personGroupId', 'person.personGroupId')
+      .select('person.thumbnailPath')
+      .where('family_member.familyId', '=', familyId)
+      .where('family_person.familyId', '=', familyId)
+      .where('person.personGroupId', '=', personGroupId)
+      .where('person.thumbnailPath', '!=', '')
+      .limit(1)
+      .executeTakeFirst();
+    return row?.thumbnailPath;
+  }
+
   // relations
 
   @GenerateSql({ params: [DummyValue.UUID] })

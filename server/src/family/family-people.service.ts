@@ -272,6 +272,15 @@ export class FamilyPeopleService extends BaseService {
     return true;
   }
 
+  /** Called by the stock thumbnail endpoint when the viewer's own copy has no face crop. */
+  async getThumbnailFallback(auth: AuthDto, personGroupId: string): Promise<string | undefined> {
+    if (!isFamilyEnabled()) {
+      return undefined;
+    }
+    const membership = await this.familyRepository.getMembership(auth.user.id);
+    return membership ? this.familyRepository.getFamilyThumbnailPath(membership.familyId, personGroupId) : undefined;
+  }
+
   /** Called by the stock merge when it has finished: copies the merged person to every member. */
   async afterStockMerge(auth: AuthDto, targetId: string) {
     const membership = await this.familyRepository.getMembership(auth.user.id);
