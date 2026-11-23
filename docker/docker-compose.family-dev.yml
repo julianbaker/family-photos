@@ -1,0 +1,24 @@
+# Family fork: local dev overrides for docker-compose.dev.yml.
+#   docker compose -f docker-compose.dev.yml -f docker-compose.family-dev.yml up -d
+# - Uses the stock machine-learning image (the fork doesn't change ML) instead of building it.
+# - Binds every port to localhost so the dev database isn't reachable from the network.
+services:
+  immich-server:
+    ports: !override
+      - 127.0.0.1:9230:9230
+      - 127.0.0.1:9231:9231
+      - 127.0.0.1:2283:2283
+  immich-web:
+    ports: !override
+      - 127.0.0.1:3000:3000
+      - 127.0.0.1:24678:24678
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:v3.4.2
+    build: !reset null
+    volumes: !override
+      - model_cache:/cache
+    ports: !override
+      - 127.0.0.1:3003:3003
+  database:
+    ports: !override
+      - 127.0.0.1:5432:5432

@@ -29,3 +29,7 @@ vite.config.js.timestamp-*
 *.tsbuildinfo
 *.tsbuildInfo
 misc/release/notes.md
+
+# family fork: local build logs
+.family-build/
+internal/
