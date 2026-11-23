@@ -3,6 +3,7 @@ import { AuthSharedLink } from 'src/database.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { PersonUserRole } from 'src/dtos/person.dto.js';
 import { AlbumUserRole, Permission } from 'src/enum.js';
+import { withFamilyAccess } from 'src/family/family-access.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { PersonId } from 'src/repositories/person.repository.js';
 
@@ -212,11 +213,19 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.AssetUpdate: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      return withFamilyAccess(
+        await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission),
+        ids,
+        (rest) => access.family.checkAssetEditAccess(auth.user.id, rest),
+      );
     }
 
     case Permission.AssetDelete: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      return withFamilyAccess(
+        await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission),
+        ids,
+        (rest) => access.family.checkAssetDeleteAccess(auth.user.id, rest),
+      );
     }
 
     case Permission.AssetCopy: {
@@ -224,15 +233,27 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.AssetEditGet: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      return withFamilyAccess(
+        await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission),
+        ids,
+        (rest) => access.family.checkAssetEditAccess(auth.user.id, rest),
+      );
     }
 
     case Permission.AssetEditCreate: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      return withFamilyAccess(
+        await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission),
+        ids,
+        (rest) => access.family.checkAssetEditAccess(auth.user.id, rest),
+      );
     }
 
     case Permission.AssetEditDelete: {
-      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      return withFamilyAccess(
+        await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission),
+        ids,
+        (rest) => access.family.checkAssetEditAccess(auth.user.id, rest),
+      );
     }
 
     case Permission.AssetFileRead:
@@ -322,7 +343,9 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.FaceDelete: {
-      return access.person.checkFaceOwnerAccess(auth.user.id, ids);
+      return withFamilyAccess(await access.person.checkFaceOwnerAccess(auth.user.id, ids), ids, (rest) =>
+        access.family.checkFaceEditAccess(auth.user.id, rest),
+      );
     }
 
     case Permission.NotificationRead:
@@ -361,11 +384,15 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.PersonCreate: {
-      return access.person.checkFaceOwnerAccess(auth.user.id, ids);
+      return withFamilyAccess(await access.person.checkFaceOwnerAccess(auth.user.id, ids), ids, (rest) =>
+        access.family.checkFaceEditAccess(auth.user.id, rest),
+      );
     }
 
     case Permission.PersonReassign: {
-      return access.person.checkFaceOwnerAccess(auth.user.id, ids);
+      return withFamilyAccess(await access.person.checkFaceOwnerAccess(auth.user.id, ids), ids, (rest) =>
+        access.family.checkFaceEditAccess(auth.user.id, rest),
+      );
     }
 
     case Permission.ClusterGroupAdmin: {

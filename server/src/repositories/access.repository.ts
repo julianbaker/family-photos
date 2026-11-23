@@ -4,6 +4,7 @@ import { InjectKysely } from 'nestjs-kysely';
 import { ChunkedSet, DummyValue, GenerateSql } from 'src/decorators.js';
 import { PersonUserRole } from 'src/dtos/person.dto.js';
 import { AlbumUserRole, AssetVisibility } from 'src/enum.js';
+import { FamilyAccess } from 'src/family/family-access.js';
 import { PersonId } from 'src/repositories/person.repository.js';
 import { DB } from 'src/schema/index.js';
 import { asUuid } from 'src/utils/database.js';
@@ -699,6 +700,8 @@ export class AccessRepository {
   tag: TagAccess;
   timeline: TimelineAccess;
   workflow: WorkflowAccess;
+  // family fork
+  family: FamilyAccess;
 
   constructor(@InjectKysely() db: Kysely<DB>) {
     this.activity = new ActivityAccess(db);
@@ -719,5 +722,6 @@ export class AccessRepository {
     this.tag = new TagAccess(db);
     this.timeline = new TimelineAccess(db);
     this.workflow = new WorkflowAccess(db);
+    this.family = new FamilyAccess(db);
   }
 }
