@@ -1,0 +1,43 @@
+# Family fork: migration rehearsal. Throwaway containers only; nothing here touches a real server.
+#
+#   SERVER_IMAGE=ghcr.io/immich-app/immich-server:v3.4.2   stock, to make a synthetic dump
+#   SERVER_IMAGE=family-photos-server:dev                  the fork, to rehearse the switch
+#
+# Ports are bound to localhost and differ from the dev stack (2283/5432).
+name: family-rehearsal
+
+services:
+  server:
+    image: ${SERVER_IMAGE:-family-photos-server:dev}
+    environment:
+      DB_HOSTNAME: database
+      DB_USERNAME: postgres
+      DB_PASSWORD: rehearsal
+      DB_DATABASE_NAME: immich
+      REDIS_HOSTNAME: redis
+      IMMICH_FAMILY_ENABLED: 'true'
+      IMMICH_MACHINE_LEARNING_ENABLED: 'false'
+      # the rehearsal restores a database but not the photo folders, so the folder checks would fail
+      IMMICH_IGNORE_MOUNT_CHECK_ERRORS: 'true'
+    volumes:
+      - library:/data
+    ports:
+      - 127.0.0.1:22830:2283
+    depends_on:
+      - database
+      - redis
+
+  redis:
+    image: docker.io/valkey/valkey:9@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd
+
+  database:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    environment:
+      POSTGRES_PASSWORD: rehearsal
+      POSTGRES_USER: postgres
+      POSTGRES_DB: immich
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    shm_size: 128mb
+
+volumes:
+  library:

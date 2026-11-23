@@ -44,3 +44,4 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `web/src/lib/components/asset-viewer/DetailPanelDate.svelte` | family members can edit dates | same |
 | `web/src/routes/(user)/family/people/`, `.../tree/`, `.../browse/`, `web/src/lib/family/` (new) | people, person page, tree, browse by relation, bio renderer | fork-only |
 | `server/src/commands/index.ts` | registers `FamilySetupCommand` (`immich-admin family-setup`) | creates the family on an existing server during cutover and prints counts to check |
+| `family/rehearsal/` (new), `family/cutover.md` (new) | migration rehearsal (compose, seed, script) and the cutover plan with rollback | fork-only tooling |
