@@ -32,3 +32,4 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `server/src/dtos/config.dto.ts` | default `map.lightStyle`/`darkStyle` go through `familyMapStyles(...)` | OpenFreeMap instead of tiles.immich.cloud when the family feature is on |
 | `server/src/services/map.service.ts` | map markers always include the user's family members | relatives don't have to switch on "include partners" for the map |
 | `packages/sdk/src/fetch-client.ts` | regenerated with oazapfts from the spec (additions only) | web uses the `/family` endpoints |
+| `server/helmet.json` | `connect-src` allows `https://tiles.openfreemap.org` | otherwise the browser blocks the OpenFreeMap tiles and the map is blank |
