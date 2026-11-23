@@ -4,6 +4,7 @@ import { AuthDto } from 'src/dtos/auth.dto.js';
 import { PartnerCreateDto, PartnerResponseDto, PartnerSearchDto, PartnerUpdateDto } from 'src/dtos/partner.dto.js';
 import { mapUser } from 'src/dtos/user.dto.js';
 import { Permission, SharingDirection } from 'src/enum.js';
+import { getFamilyPeerIds, requireNotFamilyPartner } from 'src/family/family-partner.js';
 import { PartnerIds } from 'src/repositories/partner.repository.js';
 import { BaseService } from 'src/services/base.service.js';
 
@@ -27,6 +28,8 @@ export class PartnerService extends BaseService {
   }
 
   async remove(auth: AuthDto, sharedWithId: string): Promise<void> {
+    // family fork: family sharing is managed by the server
+    await requireNotFamilyPartner(this.familyRepository, auth.user.id, sharedWithId);
     const partnerId: PartnerIds = { sharedById: auth.user.id, sharedWithId };
     const partner = await this.partnerRepository.get(partnerId);
     if (!partner) {
@@ -39,7 +42,10 @@ export class PartnerService extends BaseService {
   async search(auth: AuthDto, { direction }: PartnerSearchDto): Promise<PartnerResponseDto[]> {
     const partners = await this.partnerRepository.getAll(auth.user.id);
     const key = direction === SharingDirection.SharedBy ? 'sharedById' : 'sharedWithId';
+    // family fork: family sharing is managed by the server and not listed
+    const familyPeers = await getFamilyPeerIds(this.familyRepository, auth.user.id);
     return partners
+      .filter((partner) => !familyPeers.has(partner.sharedById) && !familyPeers.has(partner.sharedWithId))
       .filter((partner): partner is Partner => !!(partner.sharedBy && partner.sharedWith)) // Filter out soft deleted users
       .filter((partner) => partner[key] === auth.user.id)
       .map((partner) => this.mapPartner(partner, direction));
@@ -47,6 +53,8 @@ export class PartnerService extends BaseService {
 
   async update(auth: AuthDto, sharedById: string, dto: PartnerUpdateDto): Promise<PartnerResponseDto> {
     await this.requireAccess({ auth, permission: Permission.PartnerUpdate, ids: [sharedById] });
+    // family fork: family members always see each other in the timeline
+    await requireNotFamilyPartner(this.familyRepository, auth.user.id, sharedById);
     const partnerId: PartnerIds = { sharedById, sharedWithId: auth.user.id };
 
     const entity = await this.partnerRepository.update(partnerId, { inTimeline: dto.inTimeline });
