@@ -106,6 +106,8 @@ export const Route = {
 
   // sharing
   sharing: () => '/sharing',
+  // family fork
+  family: () => '/family',
 
   // shared links
   sharedLinks: (params?: { filter?: SharedLinkTab }) => '/shared-links' + asQueryString(params),

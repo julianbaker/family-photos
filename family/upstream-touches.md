@@ -35,3 +35,6 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `server/helmet.json` | `connect-src` allows `https://tiles.openfreemap.org` | otherwise the browser blocks the OpenFreeMap tiles and the map is blank |
 | `server/src/constants.ts` | `excludePaths` adds `/.well-known/apple-app-site-association` | served at the site root so iPhones open invite links in the app |
 | `server/src/schema/migrations/ORDER` | appends `1795452946998-FamilyAddInvites` | invite tables |
+| `web/src/lib/route.ts` | adds `Route.family()` | link to the Family page |
+| `web/src/lib/components/shared-components/side-bar/UserSidebar.svelte` | "Family" item, shown only to family members (`familyState`) | navigation to members, invites and requests |
+| `web/src/routes/invite/[token]/` (new), `web/src/routes/(user)/family/` (new), `web/src/lib/family/` (new) | public invite sign-up page; Family page | fork-only pages, in plain English (no i18n keys, to avoid conflicts in `i18n/en.json`) |

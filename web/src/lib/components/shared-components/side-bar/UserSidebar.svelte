@@ -2,6 +2,7 @@
   import BottomInfo from '#lib/components/shared-components/side-bar/BottomInfo.svelte';
   import RecentAlbums from '#lib/components/shared-components/side-bar/RecentAlbums.svelte';
   import Sidebar from '#lib/components/sidebar/Sidebar.svelte';
+  import { familyState } from '#lib/family/family-state.svelte.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { createPreloadedQuery } from '#lib/queries/client.ts';
   import { getUserConfigQuery } from '#lib/queries/config-user.query.ts';
@@ -10,6 +11,8 @@
   import { NavbarGroup, NavbarItem } from '@immich/ui';
   import {
     mdiAccount,
+    mdiAccountGroup,
+    mdiAccountGroupOutline,
     mdiAccountMultiple,
     mdiAccountMultipleOutline,
     mdiAccountOutline,
@@ -36,11 +39,15 @@
     mdiTrashCanOutline,
     mdiUploadOutline,
   } from '@mdi/js';
+  import { onMount } from 'svelte';
   import { t } from 'svelte-i18n';
   import { fly } from 'svelte/transition';
 
   const query = createPreloadedQuery(getUserConfigQuery);
   const config = $derived(query.data);
+
+  // family fork
+  onMount(() => void familyState.load());
 </script>
 
 <Sidebar ariaLabel={$t('primary')}>
@@ -62,6 +69,11 @@
 
   {#if authManager.preferences.sharedLinks.enabled && authManager.preferences.sharedLinks.sidebarWeb}
     <NavbarItem title={$t('shared_links')} href={Route.sharedLinks()} icon={mdiLink} />
+  {/if}
+
+  <!-- family fork -->
+  {#if familyState.inFamily}
+    <NavbarItem title="Family" href={Route.family()} icon={mdiAccountGroupOutline} activeIcon={mdiAccountGroup} />
   {/if}
 
   <NavbarItem
