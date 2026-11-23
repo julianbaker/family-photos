@@ -1,4 +1,5 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
+import { FamilyRole } from 'src/family/family.enum.js';
 import { FamilyService } from 'src/family/family.service.js';
 
 /**
@@ -31,6 +32,42 @@ export class FamilySetupCommand extends CommandRunner {
     try {
       const report = await this.service.setupFromCli({ email: options.email, name: options.name });
       console.log(JSON.stringify(report, null, 2));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  }
+}
+
+/**
+immich-admin family-add-member --email <email> [--role member|viewer|admin]
+Brings an existing account into the family (their photos and people join it). Safe to run again.
+*/
+@Command({ name: 'family-add-member', description: 'Add an existing user to the family' })
+export class FamilyAddMemberCommand extends CommandRunner {
+  constructor(private service: FamilyService) {
+    super();
+  }
+
+  @Option({ flags: '-e, --email <email>', description: 'Email of the user to add' })
+  parseEmail(value: string) {
+    return value;
+  }
+
+  @Option({ flags: '-r, --role <role>', description: 'member (default), viewer or admin' })
+  parseRole(value: string) {
+    return value;
+  }
+
+  async run(_: string[], options: { email?: string; role?: string }): Promise<void> {
+    const role = (options.role ?? FamilyRole.Member) as FamilyRole;
+    if (!options.email || !Object.values(FamilyRole).includes(role)) {
+      console.error('Usage: immich-admin family-add-member --email someone@example.com [--role member|viewer|admin]');
+      process.exitCode = 1;
+      return;
+    }
+    try {
+      console.log(JSON.stringify(await this.service.addMemberFromCli({ email: options.email, role }), null, 2));
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       process.exitCode = 1;

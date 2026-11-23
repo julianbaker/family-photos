@@ -309,4 +309,28 @@ describe(FamilyService.name, () => {
       await expect(sut.setupFromCli({ email: 'nobody@example.com' })).rejects.toThrow('No user with the email');
     });
   });
+
+  describe('addMemberFromCli', () => {
+    it('brings an existing account and its people into the family', async () => {
+      const { sut, ctx } = setup();
+      const { user: admin } = await ctx.newUser({ isAdmin: true });
+      const { user: cousin } = await ctx.newUser();
+      await ctx.newAsset({ ownerId: cousin.id });
+      await ctx.newPerson({ ownerId: cousin.id, name: 'Cousin friend' });
+      await sut.setupFromCli({ email: admin.email });
+
+      const report = await sut.addMemberFromCli({ email: cousin.email, role: FamilyRole.Member });
+
+      expect(report).toEqual(expect.objectContaining({ members: 2, assets: 1, namedPeople: 1 }));
+      expect(await clusterOf(ctx, cousin.id)).toBe(await clusterOf(ctx, admin.id));
+    });
+
+    it('needs the family to exist first', async () => {
+      const { sut, ctx } = setup();
+      const { user } = await ctx.newUser();
+      await expect(sut.addMemberFromCli({ email: user.email, role: FamilyRole.Member })).rejects.toThrow(
+        'Create the family first',
+      );
+    });
+  });
 });

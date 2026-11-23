@@ -92,6 +92,25 @@ export class FamilyService extends BaseService {
     return this.familyRepository.getReport(membership.familyId);
   }
 
+  /** For `immich-admin family-add-member`: brings an existing account into the family. */
+  async addMemberFromCli({ email, role }: { email: string; role: FamilyRole }): Promise<FamilyReport> {
+    this.requireEnabled();
+    const family = await this.familyRepository.getAnyFamily();
+    if (!family) {
+      throw new BadRequestException('Create the family first: immich-admin family-setup --email <admin email>');
+    }
+    const user = await this.userRepository.getByEmail(email);
+    if (!user) {
+      throw new BadRequestException(`No user with the email ${email}`);
+    }
+    if (!(await this.familyRepository.getMembership(user.id))) {
+      await this.addUserToFamily({ familyId: family.id, clusterGroupId: family.clusterGroupId, role }, user.id, role, {
+        userId: null,
+      });
+    }
+    return this.familyRepository.getReport(family.id);
+  }
+
   async addMember(auth: AuthDto, dto: FamilyMemberCreateDto): Promise<FamilyResponseDto> {
     const membership = await this.requireFamilyAdmin(auth);
     await this.addUserToFamily(membership, dto.userId, dto.role, { userId: auth.user.id });
