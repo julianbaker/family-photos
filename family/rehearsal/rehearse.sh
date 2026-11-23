@@ -56,6 +56,11 @@ until curl -s -m 2 http://127.0.0.1:22830/api/server/ping | grep -q pong; do
 done
 echo "   migrations: $(sql "select string_agg(name, ', ' order by name) from kysely_migrations where name like '%Family%'")"
 
+echo "== immich-admin schema-check"
+drift=$(compose exec -T server immich-admin schema-check 2>&1 | grep -E "No schema drift detected|Detected schema drift" || true)
+echo "   $drift"
+case "$drift" in *"No schema drift detected"*) ;; *) echo "   FAIL the fork sees schema drift"; exit 1 ;; esac
+
 echo "== immich-admin family-setup"
 compose exec -T server immich-admin family-setup --email "$EMAIL" --name "$NAME" | tee report.json.tmp
 REPORT=$(cat report.json.tmp); rm -f report.json.tmp

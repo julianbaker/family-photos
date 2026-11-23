@@ -57,6 +57,9 @@ cd web && pnpm exec svelte-kit sync && pnpm exec svelte-check --no-tsconfig --fa
 - The regenerated spec must differ from the release's only by the `Family*` operations (compare
   operation IDs, not lines; the order changes).
 - SQL query files: keep the release's versions; regenerate only `server/src/queries/family.repository.sql`.
+- `immich-admin schema-check` must say `No schema drift detected` (the rehearsal script checks it). If the
+  release bumps `@immich/sql-tools`, re-check whether its enum reader orders by `enumsortorder` yet; if not,
+  carry the patch in `patches/` forward to the new version.
 - Medium tests that fail here only for environment reasons on a Mac: `workflow-core-plugin` (needs the
   wasm plugin built) and the exif specs (need the `e2e/test-assets` submodule).
 

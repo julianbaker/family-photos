@@ -172,6 +172,9 @@ packageExtensionsChecksum: sha256-W6pFzyf+6QXnV91iA6oob0OGVkergPXDN1afLgoF53k=
 
 pnpmfileChecksum: sha256-un98do36L0wZyqsjcLozQ3YUadCAn2yz5bXcBbOuyDA=
 
+patchedDependencies:
+  '@immich/sql-tools@0.7.0': 177442b386375fe53db19c823fe604119d3de38359bb6d678a12f32ca7aeb8fe
+
 importers:
 
   .:
@@ -570,7 +573,7 @@ importers:
         version: link:../packages/plugin-sdk
       '@immich/sql-tools':
         specifier: ^0.7.0
-        version: 0.7.0
+        version: 0.7.0(patch_hash=177442b386375fe53db19c823fe604119d3de38359bb6d678a12f32ca7aeb8fe)
       '@nestjs/bullmq':
         specifier: ^12.0.0
         version: 12.0.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/core@12.2.0)(bullmq@6.4.0(ioredis@6.0.0(supports-color@8.1.1))(pg@8.23.1))
@@ -16178,7 +16181,7 @@ snapshots:
     dependencies:
       '@futo-org/backups-api-client': 1.18.1
       '@futo-org/restic-wrapper': 1.9.0
-      '@immich/sql-tools': 0.7.0
+      '@immich/sql-tools': 0.7.0(patch_hash=177442b386375fe53db19c823fe604119d3de38359bb6d678a12f32ca7aeb8fe)
       '@nestjs/common': 12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1)
       '@nestjs/core': 12.2.0(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/platform-express@12.2.0)(@nestjs/websockets@12.2.0)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/event-emitter': 12.0.1(@nestjs/common@12.2.0(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/core@12.2.0)
@@ -16433,7 +16436,7 @@ snapshots:
 
   '@immich/justified-layout-wasm@0.4.5': {}
 
-  '@immich/sql-tools@0.7.0':
+  '@immich/sql-tools@0.7.0(patch_hash=177442b386375fe53db19c823fe604119d3de38359bb6d678a12f32ca7aeb8fe)':
     dependencies:
       commander: 15.0.0
       graph-data-structure: 4.5.0

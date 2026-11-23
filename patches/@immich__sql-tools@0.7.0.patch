@@ -1,0 +1,13 @@
+diff --git a/dist/index.js b/dist/index.js
+index 9d92831e9a608a70dbce30ddbaea95dc8edb27df..78f08d3e2f37083f536dd219da235156dcea5460 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -2241,7 +2241,7 @@ var readColumns = async (ctx, db) => {
+ 		"c.udt_name",
+ 		"o.data_type as array_type"
+ 	]).where("table_schema", "=", ctx.schemaName).execute();
+-	const enums = (await db.selectFrom("pg_type").innerJoin("pg_namespace", (join) => join.onRef("pg_namespace.oid", "=", "pg_type.typnamespace").on("pg_namespace.nspname", "=", ctx.schemaName)).where("typtype", "=", sql.lit("e")).select((eb) => ["pg_type.typname as name", jsonArrayFrom(eb.selectFrom("pg_enum as e").select(["e.enumlabel as value"]).whereRef("e.enumtypid", "=", "pg_type.oid")).as("values")]).execute()).map((item) => ({
++	const enums = (await db.selectFrom("pg_type").innerJoin("pg_namespace", (join) => join.onRef("pg_namespace.oid", "=", "pg_type.typnamespace").on("pg_namespace.nspname", "=", ctx.schemaName)).where("typtype", "=", sql.lit("e")).select((eb) => ["pg_type.typname as name", jsonArrayFrom(eb.selectFrom("pg_enum as e").select(["e.enumlabel as value"]).whereRef("e.enumtypid", "=", "pg_type.oid").orderBy("e.enumsortorder")).as("values")]).execute()).map((item) => ({
+ 		name: item.name,
+ 		values: item.values.map(({ value }) => value)
+ 	}));
