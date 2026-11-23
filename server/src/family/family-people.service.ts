@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { Selectable } from 'kysely';
+import { Selectable, Updateable } from 'kysely';
 import { OnEvent } from 'src/decorators.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { ImmichWorker, JobName } from 'src/enum.js';
@@ -195,6 +195,89 @@ export class FamilyPeopleService extends BaseService {
       { name: before.name, birthDate: toDateString(before.birthDate) },
       changes,
     );
+  }
+
+  /**
+  Called by the stock merge before it runs. In a family every member has a copy of each person (a
+  mirror of the family's record), so a merge is a family-wide change: the stock code must merge every
+  member's copy, not stop at the first name clash between two mirrors. This folds the sources' details
+  and relations into the target first, since the sources' records go with their person groups.
+  Returns true when the merge is family-wide.
+  */
+  async beforeStockMerge(auth: AuthDto, targetId: string, sourceIds: string[]): Promise<boolean> {
+    if (!isFamilyEnabled() || sourceIds.length === 0) {
+      return false;
+    }
+    const membership = await this.familyRepository.getMembership(auth.user.id);
+    if (!membership || !CONTRIBUTOR_ROLES.includes(membership.role)) {
+      return false;
+    }
+    const target = await this.familyRepository.getFamilyPerson(membership.familyId, targetId);
+    const found = await Promise.all(
+      sourceIds.map((id) => this.familyRepository.getFamilyPerson(membership.familyId, id)),
+    );
+    const sources = found.filter((person) => person !== undefined);
+    if (!target || sources.length === 0) {
+      return false;
+    }
+
+    // the target's own details win; a source only fills what the target lacks
+    const values: Updateable<FamilyPersonTable> = {};
+    const first = <T>(pick: (person: (typeof sources)[number]) => T | null | undefined): T | undefined =>
+      sources
+        .map((person) => pick(person))
+        .find((value): value is T => value !== null && value !== undefined && value !== '');
+    if (!target.name) {
+      values.name = first((person) => person.name);
+    }
+    if (!target.birthDate) {
+      values.birthDate = first((person) => person.birthDate);
+    }
+    if (!target.deathDate) {
+      values.deathDate = first((person) => person.deathDate);
+    }
+    if (!target.gender) {
+      values.gender = first((person) => person.gender);
+    }
+    if (!target.linkedUserId) {
+      values.linkedUserId = first((person) => person.linkedUserId);
+    }
+    const bios = [target.bio, ...sources.map((person) => person.bio)].filter((bio) => !!bio?.trim());
+    if (bios.length > 1 || (!target.bio && bios.length === 1)) {
+      values.bio = bios.join('\n\n');
+    }
+    for (const key of Object.keys(values) as (keyof typeof values)[]) {
+      if (values[key] === undefined) {
+        delete values[key];
+      }
+    }
+    if (Object.keys(values).length > 0) {
+      values.updatedById = auth.user.id;
+    }
+
+    await this.familyRepository.mergeFamilyPeople(
+      membership.familyId,
+      targetId,
+      sources.map((person) => person.personGroupId),
+      values,
+    );
+    await this.recordHistory(
+      membership,
+      auth,
+      FamilyHistoryAction.PersonMerge,
+      targetId,
+      { merged: sources.map(({ personGroupId, name }) => ({ personGroupId, name })) },
+      values,
+    );
+    return true;
+  }
+
+  /** Called by the stock merge when it has finished: copies the merged person to every member. */
+  async afterStockMerge(auth: AuthDto, targetId: string) {
+    const membership = await this.familyRepository.getMembership(auth.user.id);
+    if (membership) {
+      await this.familyRepository.mirrorFamilyPeople(membership.familyId, targetId);
+    }
   }
 
   async getRelatives(auth: AuthDto, id: string, dto: FamilyRelativesQueryDto): Promise<FamilyRelativeResponseDto[]> {

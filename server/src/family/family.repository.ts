@@ -501,6 +501,63 @@ export class FamilyRepository {
     });
   }
 
+  /**
+  Folds `sourceIds` into `targetId` before a merge: the target takes `values` (the combined details)
+  and every relation of a source is re-pointed at the target. Relations that would point a person at
+  themselves, or repeat one the target already has, are dropped. Symmetric relations (spouse, sibling,
+  friend) keep the smaller ID first. The source records themselves go when the merge deletes their
+  person groups.
+  */
+  async mergeFamilyPeople(
+    familyId: string,
+    targetId: string,
+    sourceIds: string[],
+    values: Updateable<FamilyPersonTable>,
+  ): Promise<void> {
+    await this.db.transaction().execute(async (trx) => {
+      // "this is me" is unique: free it on the sources before the target takes it
+      await trx
+        .updateTable('family_person')
+        .set({ linkedUserId: null })
+        .where('familyId', '=', familyId)
+        .where('personGroupId', '=', anyUuid(sourceIds))
+        .execute();
+      if (Object.keys(values).length > 0) {
+        await trx
+          .updateTable('family_person')
+          .set(values)
+          .where('familyId', '=', familyId)
+          .where('personGroupId', '=', targetId)
+          .execute();
+      }
+      await sql`
+        insert into "family_relation"
+          ("familyId", "personGroupId", "relatedPersonGroupId", "type", "qualifier", "label", "createdById")
+        select r."familyId",
+          case when r."type" in ('spouse', 'sibling', 'friend') then least(r.a, r.b) else r.a end,
+          case when r."type" in ('spouse', 'sibling', 'friend') then greatest(r.a, r.b) else r.b end,
+          r."type", r."qualifier", r."label", r."createdById"
+        from (
+          select fr.*,
+            case when fr."personGroupId" = ${anyUuid(sourceIds)} then ${targetId}::uuid else fr."personGroupId" end as a,
+            case when fr."relatedPersonGroupId" = ${anyUuid(sourceIds)} then ${targetId}::uuid else fr."relatedPersonGroupId" end as b
+          from "family_relation" fr
+          where fr."familyId" = ${familyId}
+            and (fr."personGroupId" = ${anyUuid(sourceIds)} or fr."relatedPersonGroupId" = ${anyUuid(sourceIds)})
+        ) r
+        where r.a <> r.b
+        on conflict ("personGroupId", "relatedPersonGroupId", "type") do nothing
+      `.execute(trx);
+      await trx
+        .deleteFrom('family_relation')
+        .where('familyId', '=', familyId)
+        .where((eb) =>
+          eb.or([eb('personGroupId', '=', anyUuid(sourceIds)), eb('relatedPersonGroupId', '=', anyUuid(sourceIds))]),
+        )
+        .execute();
+    });
+  }
+
   // relations
 
   @GenerateSql({ params: [DummyValue.UUID] })

@@ -704,6 +704,10 @@ export class PersonService extends BaseService {
       people.filter((person) => person.personGroupId === targetId).map((person) => [person.ownerId, person]),
     );
 
+    // family fork: in a family, a merge applies to every member's copy of these people
+    const familyPeople = BaseService.create(FamilyPeopleService, this);
+    const familyWide = targetId ? await familyPeople.beforeStockMerge(auth, targetId, sourceIds) : false;
+
     if (targets.has(auth.user.id)) {
       results.set(targetId, { id: targetId, success: true });
     }
@@ -718,7 +722,12 @@ export class PersonService extends BaseService {
         }
 
         // skip other users when there are conflicts
-        if (!isAuthUser && target && ((target.name && source.name) || (target.birthDate && source.birthDate))) {
+        if (
+          !isAuthUser &&
+          !familyWide &&
+          target &&
+          ((target.name && source.name) || (target.birthDate && source.birthDate))
+        ) {
           continue;
         }
 
@@ -761,6 +770,9 @@ export class PersonService extends BaseService {
     }
 
     await this.personRepository.deleteEmptyGroups();
+    if (familyWide) {
+      await familyPeople.afterStockMerge(auth, targetId);
+    }
 
     return results.values().toArray();
   }

@@ -21,6 +21,7 @@ export enum FamilyHistoryAction {
   InviteRequestDecline = 'invite-request.decline',
   PersonCreate = 'person.create',
   PersonUpdate = 'person.update',
+  PersonMerge = 'person.merge',
   RelationCreate = 'relation.create',
   RelationDelete = 'relation.delete',
   CommentDelete = 'comment.delete',

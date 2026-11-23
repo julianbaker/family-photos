@@ -10,6 +10,7 @@ import { ClusterGroupRepository } from 'src/repositories/cluster-group.repositor
 import { EventRepository } from 'src/repositories/event.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import { PersonRepository } from 'src/repositories/person.repository.js';
+import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { UserRepository } from 'src/repositories/user.repository.js';
 import { DB } from 'src/schema/index.js';
 import { PersonService } from 'src/services/person.service.js';
@@ -42,8 +43,10 @@ const setup = () => {
   const stockPeople = newMediumService(PersonService, {
     database: defaultDatabase,
     real,
-    mock: [LoggingRepository, EventRepository],
+    // merging deletes the merged people's face thumbnails
+    mock: [LoggingRepository, EventRepository, StorageRepository],
   });
+  stockPeople.ctx.getMock(StorageRepository).unlink.mockResolvedValue();
   return { sut: people.sut, ctx: people.ctx, family: family.sut, stockPeople: stockPeople.sut };
 };
 
@@ -260,6 +263,81 @@ describe(FamilyPeopleService.name, () => {
       const [relation] = relations;
       await setupResult.sut.deleteRelation(memberAuth, relation.id);
       expect(await setupResult.sut.getRelations(memberAuth)).toEqual([]);
+    });
+  });
+
+  describe('merging', () => {
+    it('merges every member’s copy, and keeps details, relations and faces', async () => {
+      const setupResult = setup();
+      const { ctx, sut, stockPeople } = setupResult;
+      const { admin, member, adminAuth, memberAuth, amyId } = await newFamily(setupResult);
+      // the same woman, found twice by face recognition and named by a member
+      const twin = await sut.create(memberAuth, { name: 'Amy B', bio: 'Loved the sea.', deathDate: '2020-01-01' });
+      const kid = await sut.create(memberAuth, { name: 'Kid' });
+      const husband = await sut.create(memberAuth, { name: 'Husband' });
+      await sut.createRelation(memberAuth, { personId: amyId, relatedPersonId: kid.id, type: RelationType.Parent });
+      await sut.createRelation(memberAuth, { personId: twin.id, relatedPersonId: kid.id, type: RelationType.Parent });
+      await sut.createRelation(memberAuth, {
+        personId: husband.id,
+        relatedPersonId: twin.id,
+        type: RelationType.Spouse,
+      });
+      await sut.createRelation(memberAuth, { personId: amyId, relatedPersonId: twin.id, type: RelationType.Sibling });
+      const { asset: adminPhoto } = await ctx.newAsset({ ownerId: admin.id });
+      const { asset: memberPhoto } = await ctx.newAsset({ ownerId: member.id });
+      await ctx.newAssetFace({ assetId: adminPhoto.id, personGroupId: twin.id });
+      await ctx.newAssetFace({ assetId: memberPhoto.id, personGroupId: twin.id });
+
+      const results = await stockPeople.mergePeople(adminAuth, { ids: [amyId, twin.id] });
+
+      expect(results).toEqual([
+        { id: amyId, success: true },
+        { id: twin.id, success: true },
+      ]);
+      // one person for everyone, not just for the admin
+      const everyone = await sut.getAll(memberAuth);
+      const names = everyone.map((person) => person.name).sort();
+      expect(names).toEqual(['Amy', 'Husband', 'Kid']);
+      const leftovers = await ctx.database
+        .selectFrom('person')
+        .select('ownerId')
+        .where('personGroupId', '=', twin.id)
+        .execute();
+      expect(leftovers).toEqual([]);
+      // the kept person's details win; the merged one fills the gaps
+      const amy = await sut.get(memberAuth, amyId);
+      expect(amy).toEqual(
+        expect.objectContaining({
+          name: 'Amy',
+          birthDate: '1960-02-20',
+          deathDate: '2020-01-01',
+          bio: 'Loved the sea.',
+        }),
+      );
+      // relations move across; the duplicate parent link and the sibling link to herself go
+      const relations = await sut.getRelations(memberAuth);
+      expect(relations).toHaveLength(2);
+      expect(relations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ personId: amyId, relatedPersonId: kid.id, type: RelationType.Parent }),
+          expect.objectContaining({ type: RelationType.Spouse }),
+        ]),
+      );
+      const spouse = relations.find((relation) => relation.type === RelationType.Spouse)!;
+      expect([spouse.personId, spouse.relatedPersonId].sort()).toEqual([amyId, husband.id].sort());
+      // every member's faces now belong to the kept person
+      const faces = await ctx.database
+        .selectFrom('asset_face')
+        .select('personGroupId')
+        .where('assetId', 'in', [adminPhoto.id, memberPhoto.id])
+        .execute();
+      expect(faces).toEqual([{ personGroupId: amyId }, { personGroupId: amyId }]);
+      const history = await ctx.database
+        .selectFrom('family_history')
+        .selectAll()
+        .where('action', '=', 'person.merge')
+        .execute();
+      expect(history).toEqual([expect.objectContaining({ entityId: amyId })]);
     });
   });
 
