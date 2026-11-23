@@ -7,7 +7,7 @@
 #
 # 1. restores the dump into a fresh Postgres (same image as stock Immich)
 # 2. records what the old server has: photos, named people, birth dates, face assignments
-# 3. starts the fork image (SERVER_IMAGE, default family-photos-server:dev), which runs its migrations
+# 3. starts the fork image (SERVER_IMAGE, default sibred-server:dev), which runs its migrations
 # 4. runs `immich-admin family-setup`
 # 5. checks nothing was lost and prints a report; exits non-zero if a check fails
 # Set KEEP=1 to leave the containers running afterwards (http://127.0.0.1:22830).
@@ -18,7 +18,7 @@ EMAIL="${2:?email of the server admin who becomes the family admin}"
 NAME="${3:-Family}"
 OWNER="${4:-postgres}"
 cd "$(dirname "$0")"
-export SERVER_IMAGE="${SERVER_IMAGE:-family-photos-server:dev}"
+export SERVER_IMAGE="${SERVER_IMAGE:-sibred-server:dev}"
 
 compose() { docker compose "$@"; }
 sql() { compose exec -T database psql -U postgres -d immich -At -v ON_ERROR_STOP=1 -c "$1"; }

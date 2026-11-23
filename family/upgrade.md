@@ -66,10 +66,10 @@ cd web && pnpm exec svelte-kit sync && pnpm exec svelte-check --no-tsconfig --fa
 ## 4. Rehearse the upgrade on data
 
 ```sh
-docker build -f server/Dockerfile -t family-photos-server:v3.5.0-family .
+docker build -f server/Dockerfile -t sibred-server:v3.5.0-family .
 # a copy of the newest production dump, switched to the CURRENT fork, then upgraded:
-KEEP=1 SERVER_IMAGE=family-photos-server:<current> family/rehearsal/rehearse.sh dump.sql.gz admin@example.com "Our family"
-cd family/rehearsal && SERVER_IMAGE=family-photos-server:v3.5.0-family docker compose up -d server
+KEEP=1 SERVER_IMAGE=sibred-server:<current> family/rehearsal/rehearse.sh dump.sql.gz admin@example.com "Our family"
+cd family/rehearsal && SERVER_IMAGE=sibred-server:v3.5.0-family docker compose up -d server
 docker compose logs -f server      # new upstream migrations succeed, "No schema drift detected"
 docker compose down -v
 ```

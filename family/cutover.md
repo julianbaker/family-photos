@@ -6,7 +6,7 @@ details (hostnames, accounts, expected counts) belong in your own notes, not her
 ## Before the day
 
 1. **Build the fork image** from the `family` branch (or pull a tagged build):
-   `docker build -f server/Dockerfile -t family-photos-server:<commit> .`
+   `docker build -f server/Dockerfile -t sibred-server:<commit> .`
 2. **Rehearse on a copy of last night's database dump.** Copy the newest
    `immich-db-backup-*.sql.gz` from the server's backups folder to the build machine (read-only copy;
    don't touch the server). Then:

@@ -1,14 +1,14 @@
 # Family fork: migration rehearsal. Throwaway containers only; nothing here touches a real server.
 #
 #   SERVER_IMAGE=ghcr.io/immich-app/immich-server:v3.4.2   stock, to make a synthetic dump
-#   SERVER_IMAGE=family-photos-server:dev                  the fork, to rehearse the switch
+#   SERVER_IMAGE=sibred-server:dev                  the fork, to rehearse the switch
 #
 # Ports are bound to localhost and differ from the dev stack (2283/5432).
 name: family-rehearsal
 
 services:
   server:
-    image: ${SERVER_IMAGE:-family-photos-server:dev}
+    image: ${SERVER_IMAGE:-sibred-server:dev}
     environment:
       DB_HOSTNAME: database
       DB_USERNAME: postgres
