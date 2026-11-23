@@ -1,0 +1,498 @@
+/**
+Works out how two people in the family are related, from the stored relations only: parent (directed),
+spouse, sibling, godparent (directed), friend and custom. Grandparents, cousins, in-laws and the rest
+are computed here and never stored. Pure functions, no database.
+*/
+
+export type Gender = 'female' | 'male' | null;
+
+export enum RelationType {
+  Parent = 'parent',
+  Spouse = 'spouse',
+  Sibling = 'sibling',
+  Godparent = 'godparent',
+  Friend = 'friend',
+  Custom = 'custom',
+}
+
+export enum RelationQualifier {
+  Step = 'step',
+  Adopted = 'adopted',
+  Half = 'half',
+  Former = 'former',
+}
+
+export type StoredRelation = {
+  id: string;
+  personId: string;
+  relatedPersonId: string;
+  type: RelationType;
+  qualifier: RelationQualifier | null;
+  label: string | null;
+};
+
+export type RelationPerson = { id: string; gender: Gender };
+
+/** How `to` is related to `from`, e.g. { key: 'grandparent', label: 'grandmother' }. */
+export type Relationship = { key: string; label: string };
+
+const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+const ordinal = (n: number) => ORDINALS[n - 1] ?? `${n}th`;
+const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
+const greats = (n: number) => 'great-'.repeat(Math.max(0, n));
+
+const WORDS: Record<string, [female: string, male: string, neutral: string]> = {
+  parent: ['mother', 'father', 'parent'],
+  child: ['daughter', 'son', 'child'],
+  sibling: ['sister', 'brother', 'sibling'],
+  'half-sibling': ['half-sister', 'half-brother', 'half-sibling'],
+  grandparent: ['grandmother', 'grandfather', 'grandparent'],
+  grandchild: ['granddaughter', 'grandson', 'grandchild'],
+  'aunt-uncle': ['aunt', 'uncle', 'aunt or uncle'],
+  'niece-nephew': ['niece', 'nephew', 'niece or nephew'],
+  spouse: ['wife', 'husband', 'spouse'],
+  'former-spouse': ['former wife', 'former husband', 'former spouse'],
+  'parent-in-law': ['mother-in-law', 'father-in-law', 'parent-in-law'],
+  'child-in-law': ['daughter-in-law', 'son-in-law', 'child-in-law'],
+  'sibling-in-law': ['sister-in-law', 'brother-in-law', 'sibling-in-law'],
+  'step-parent': ['stepmother', 'stepfather', 'step-parent'],
+  'step-child': ['stepdaughter', 'stepson', 'stepchild'],
+  'step-sibling': ['stepsister', 'stepbrother', 'step-sibling'],
+  'adoptive-parent': ['adoptive mother', 'adoptive father', 'adoptive parent'],
+  'adopted-child': ['adopted daughter', 'adopted son', 'adopted child'],
+  godparent: ['godmother', 'godfather', 'godparent'],
+  godchild: ['goddaughter', 'godson', 'godchild'],
+};
+
+const word = (key: string, gender: Gender) => {
+  const words = WORDS[key];
+  if (!words) {
+    return key;
+  }
+  return gender === 'female' ? words[0] : gender === 'male' ? words[1] : words[2];
+};
+
+/** Blood relationship from the number of generations each person is below their nearest common ancestor. */
+export const bloodRelationship = (up: number, down: number, gender: Gender): Relationship | null => {
+  if (up === 0 && down === 0) {
+    return { key: 'self', label: 'self' };
+  }
+  if (down === 0) {
+    if (up === 1) {
+      return { key: 'parent', label: word('parent', gender) };
+    }
+    return { key: `${greats(up - 2)}grandparent`, label: greats(up - 2) + word('grandparent', gender) };
+  }
+  if (up === 0) {
+    if (down === 1) {
+      return { key: 'child', label: word('child', gender) };
+    }
+    return { key: `${greats(down - 2)}grandchild`, label: greats(down - 2) + word('grandchild', gender) };
+  }
+  if (up === 1 && down === 1) {
+    return { key: 'sibling', label: word('sibling', gender) };
+  }
+  if (down === 1) {
+    // a sibling of an ancestor
+    return { key: `${greats(up - 2)}aunt-uncle`, label: greats(up - 2) + word('aunt-uncle', gender) };
+  }
+  if (up === 1) {
+    // a descendant of a sibling
+    return { key: `${greats(down - 2)}niece-nephew`, label: greats(down - 2) + word('niece-nephew', gender) };
+  }
+  const degree = Math.min(up, down) - 1;
+  const removed = Math.abs(up - down);
+  return {
+    key: 'cousin',
+    label: `${ordinal(degree)} cousin${removed > 0 ? ` ${times(removed)} removed` : ''}`,
+  };
+};
+
+const IN_LAW_KEYS: Record<string, string> = {
+  parent: 'parent-in-law',
+  sibling: 'sibling-in-law',
+  'half-sibling': 'sibling-in-law',
+  child: 'child-in-law',
+};
+
+const add = <V>(map: Map<string, Map<string, V>>, a: string, b: string, value: V) => {
+  if (!map.has(a)) {
+    map.set(a, new Map());
+  }
+  map.get(a)!.set(b, value);
+};
+
+const addSet = (map: Map<string, Set<string>>, a: string, b: string) => {
+  if (!map.has(a)) {
+    map.set(a, new Set());
+  }
+  map.get(a)!.add(b);
+};
+
+export class FamilyGraph {
+  private people = new Map<string, RelationPerson>();
+  /** child -> parents counted for blood (biological and adopted), with the qualifier */
+  private parents = new Map<string, Map<string, RelationQualifier | null>>();
+  private stepParents = new Map<string, Set<string>>();
+  private spouses = new Map<string, Map<string, RelationQualifier | null>>();
+  /** explicit sibling links, with the qualifier */
+  private siblings = new Map<string, Map<string, RelationQualifier | null>>();
+  private godparents = new Map<string, Set<string>>();
+  private friends = new Map<string, Set<string>>();
+  private custom: StoredRelation[] = [];
+  /** explicit sibling groups share a virtual parent, so their families link up even without parents */
+  private virtualParent = new Map<string, string>();
+  private ancestorCache = new Map<string, Map<string, number>>();
+
+  constructor(people: RelationPerson[], relations: StoredRelation[]) {
+    for (const person of people) {
+      this.people.set(person.id, person);
+    }
+
+    for (const relation of relations) {
+      const { personId: a, relatedPersonId: b, qualifier } = relation;
+      switch (relation.type) {
+        case RelationType.Parent: {
+          if (qualifier === RelationQualifier.Step) {
+            addSet(this.stepParents, b, a);
+          } else {
+            add(this.parents, b, a, qualifier);
+          }
+          break;
+        }
+        case RelationType.Spouse: {
+          add(this.spouses, a, b, qualifier);
+          add(this.spouses, b, a, qualifier);
+          break;
+        }
+        case RelationType.Sibling: {
+          add(this.siblings, a, b, qualifier);
+          add(this.siblings, b, a, qualifier);
+          break;
+        }
+        case RelationType.Godparent: {
+          addSet(this.godparents, b, a);
+          break;
+        }
+        case RelationType.Friend: {
+          addSet(this.friends, a, b);
+          addSet(this.friends, b, a);
+          break;
+        }
+        case RelationType.Custom: {
+          this.custom.push(relation);
+          break;
+        }
+      }
+    }
+
+    this.buildVirtualParents();
+  }
+
+  /** Union explicit (non-step) siblings into groups; each group gets one virtual parent. */
+  private buildVirtualParents() {
+    const root = new Map<string, string>();
+    const find = (id: string): string => {
+      const parent = root.get(id) ?? id;
+      if (parent === id) {
+        return id;
+      }
+      const top = find(parent);
+      root.set(id, top);
+      return top;
+    };
+    for (const [a, others] of this.siblings) {
+      for (const [b, qualifier] of others) {
+        if (qualifier !== RelationQualifier.Step) {
+          root.set(find(a), find(b));
+        }
+      }
+    }
+    for (const id of this.siblings.keys()) {
+      const top = find(id);
+      if (top !== id || this.siblings.keys().some((other) => other !== id && find(other) === top)) {
+        this.virtualParent.set(id, `virtual:${top}`);
+      }
+    }
+  }
+
+  private parentsOf(id: string): string[] {
+    const result = [...(this.parents.get(id)?.keys() ?? [])];
+    const virtual = this.virtualParent.get(id);
+    if (virtual) {
+      result.push(virtual);
+    }
+    return result;
+  }
+
+  /** Every ancestor (including the person, at 0) with the fewest generations up to it. */
+  private ancestors(id: string): Map<string, number> {
+    const cached = this.ancestorCache.get(id);
+    if (cached) {
+      return cached;
+    }
+    const result = new Map<string, number>([[id, 0]]);
+    const queue: string[] = [id];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const distance = result.get(current)!;
+      for (const parent of this.parentsOf(current)) {
+        if (result.has(parent)) {
+          continue;
+        }
+
+        result.set(parent, distance + 1);
+        queue.push(parent);
+      }
+    }
+    this.ancestorCache.set(id, result);
+    return result;
+  }
+
+  private gender(id: string): Gender {
+    return this.people.get(id)?.gender ?? null;
+  }
+
+  /** The nearest blood relationship of `to` relative to `from`, if any. */
+  blood(from: string, to: string): Relationship | null {
+    const fromAncestors = this.ancestors(from);
+    const toAncestors = this.ancestors(to);
+    let best: { up: number; down: number } | null = null;
+    for (const [ancestor, up] of fromAncestors) {
+      const down = toAncestors.get(ancestor);
+      if (down !== undefined && (!best || up + down < best.up + best.down)) {
+        best = { up, down };
+      }
+    }
+    if (!best) {
+      return null;
+    }
+
+    const relationship = bloodRelationship(best.up, best.down, this.gender(to));
+    if (!relationship) {
+      return null;
+    }
+
+    if (relationship.key === 'sibling' && this.isHalfSibling(from, to)) {
+      return { key: 'half-sibling', label: word('half-sibling', this.gender(to)) };
+    }
+
+    if (best.up === 1 && best.down === 0 && this.parents.get(from)?.get(to) === RelationQualifier.Adopted) {
+      return { key: 'adoptive-parent', label: word('adoptive-parent', this.gender(to)) };
+    }
+    if (best.up === 0 && best.down === 1 && this.parents.get(to)?.get(from) === RelationQualifier.Adopted) {
+      return { key: 'adopted-child', label: word('adopted-child', this.gender(to)) };
+    }
+
+    return relationship;
+  }
+
+  private isHalfSibling(a: string, b: string): boolean {
+    if (this.siblings.get(a)?.get(b) === RelationQualifier.Half) {
+      return true;
+    }
+    const parentsA = new Set(this.parents.get(a)?.keys());
+    const parentsB = new Set(this.parents.get(b)?.keys());
+    const shared = [...parentsA].filter((parent) => parentsB.has(parent)).length;
+    return parentsA.size === 2 && parentsB.size === 2 && shared === 1;
+  }
+
+  private spousesOf(id: string, includeFormer = false): string[] {
+    return [...(this.spouses.get(id) ?? [])]
+      .filter(([, qualifier]) => includeFormer || qualifier !== RelationQualifier.Former)
+      .map(([spouse]) => spouse);
+  }
+
+  /** How `to` is related to `from`, using the closest kind of link; null when they aren't related. */
+  relationship(from: string, to: string): Relationship | null {
+    if (from === to) {
+      return { key: 'self', label: 'self' };
+    }
+
+    const spouseQualifier = this.spouses.get(from)?.get(to);
+    if (spouseQualifier !== undefined) {
+      const key = spouseQualifier === RelationQualifier.Former ? 'former-spouse' : 'spouse';
+      return { key, label: word(key, this.gender(to)) };
+    }
+
+    const blood = this.blood(from, to);
+    if (blood) {
+      return blood;
+    }
+
+    const step = this.stepRelationship(from, to);
+    if (step) {
+      return step;
+    }
+
+    const inLaw = this.inLawRelationship(from, to);
+    if (inLaw) {
+      return inLaw;
+    }
+
+    if (this.godparents.get(from)?.has(to)) {
+      return { key: 'godparent', label: word('godparent', this.gender(to)) };
+    }
+    if (this.godparents.get(to)?.has(from)) {
+      return { key: 'godchild', label: word('godchild', this.gender(to)) };
+    }
+    if (this.friends.get(from)?.has(to)) {
+      return { key: 'friend', label: 'friend' };
+    }
+
+    // custom: the label says what `personId` is to `relatedPersonId`
+    const custom = this.custom.find((relation) => relation.personId === to && relation.relatedPersonId === from);
+    if (custom?.label) {
+      return { key: 'custom', label: custom.label };
+    }
+    const reverse = this.custom.find((relation) => relation.personId === from && relation.relatedPersonId === to);
+    if (reverse?.label) {
+      return { key: 'custom', label: `(you are their ${reverse.label})` };
+    }
+
+    return null;
+  }
+
+  private stepParentsOf(id: string): Set<string> {
+    const result = new Set(this.stepParents.get(id));
+    // a parent's current spouse who isn't also a parent
+    const parents = new Set(this.parents.get(id)?.keys());
+    for (const parent of parents) {
+      for (const spouse of this.spousesOf(parent)) {
+        if (!parents.has(spouse)) {
+          result.add(spouse);
+        }
+      }
+    }
+    return result;
+  }
+
+  private stepRelationship(from: string, to: string): Relationship | null {
+    if (this.stepParentsOf(from).has(to)) {
+      return { key: 'step-parent', label: word('step-parent', this.gender(to)) };
+    }
+    if (this.stepParentsOf(to).has(from)) {
+      return { key: 'step-child', label: word('step-child', this.gender(to)) };
+    }
+    if (this.siblings.get(from)?.get(to) === RelationQualifier.Step) {
+      return { key: 'step-sibling', label: word('step-sibling', this.gender(to)) };
+    }
+    // a step-parent's child who isn't a blood sibling
+    for (const stepParent of this.stepParentsOf(from)) {
+      if (this.parents.get(to)?.has(stepParent)) {
+        return { key: 'step-sibling', label: word('step-sibling', this.gender(to)) };
+      }
+    }
+    return null;
+  }
+
+  private inLawRelationship(from: string, to: string): Relationship | null {
+    // a blood relative of my spouse
+    for (const spouse of this.spousesOf(from)) {
+      const blood = this.blood(spouse, to);
+      if (blood && blood.key !== 'self') {
+        const key = IN_LAW_KEYS[blood.key];
+        if (key) {
+          return { key, label: word(key, this.gender(to)) };
+        }
+        return { key: `${blood.key}-in-law`, label: `${blood.label}-in-law` };
+      }
+    }
+    // the spouse of my blood relative
+    for (const spouse of this.spousesOf(to)) {
+      const blood = this.blood(from, spouse);
+      if (blood && blood.key !== 'self') {
+        if (blood.key === 'child') {
+          return { key: 'child-in-law', label: word('child-in-law', this.gender(to)) };
+        }
+        if (blood.key === 'sibling' || blood.key === 'half-sibling') {
+          return { key: 'sibling-in-law', label: word('sibling-in-law', this.gender(to)) };
+        }
+        if (blood.key.endsWith('aunt-uncle')) {
+          const prefix = blood.key.slice(0, -'aunt-uncle'.length);
+          return { key: blood.key, label: `${prefix}${word('aunt-uncle', this.gender(to))} by marriage` };
+        }
+        return { key: `${blood.key}-spouse`, label: `${blood.label}'s ${word('spouse', this.gender(to))}` };
+      }
+    }
+    return null;
+  }
+
+  /** Everyone related to `from`, closest first. */
+  relatives(from: string): Array<{ personId: string } & Relationship> {
+    const result: Array<{ personId: string } & Relationship> = [];
+    for (const id of this.people.keys()) {
+      if (id === from) {
+        continue;
+      }
+      const relationship = this.relationship(from, id);
+      if (relationship) {
+        result.push({ personId: id, ...relationship });
+      }
+    }
+    return result;
+  }
+
+  /** People who are `key` to `from`, e.g. all of someone's children or grandparents. */
+  relativesByKey(from: string, keys: string[]): string[] {
+    return this.relatives(from)
+      .filter((relative) => keys.includes(relative.key))
+      .map((relative) => relative.personId);
+  }
+
+  /** True when `ancestor` is `id` or one of its blood ancestors. */
+  isAncestor(ancestor: string, id: string): boolean {
+    return this.ancestors(id).has(ancestor);
+  }
+
+  bloodParentCount(id: string): number {
+    return this.parents.get(id)?.size ?? 0;
+  }
+}
+
+/** Refuses relations that can't be true: cycles, a third parent, and the like. Returns an error message or null. */
+export const validateRelation = (
+  graph: FamilyGraph,
+  relation: Pick<StoredRelation, 'personId' | 'relatedPersonId' | 'type' | 'qualifier' | 'label'>,
+): string | null => {
+  const { personId, relatedPersonId, type, qualifier, label } = relation;
+  if (personId === relatedPersonId) {
+    return 'A person cannot be related to themselves';
+  }
+  if (type === RelationType.Custom && !label?.trim()) {
+    return 'A custom relation needs a label';
+  }
+  if (type !== RelationType.Custom && label) {
+    return 'Only a custom relation has a label';
+  }
+
+  const allowed: Record<RelationType, Array<RelationQualifier | null>> = {
+    [RelationType.Parent]: [null, RelationQualifier.Step, RelationQualifier.Adopted],
+    [RelationType.Sibling]: [null, RelationQualifier.Step, RelationQualifier.Half, RelationQualifier.Adopted],
+    [RelationType.Spouse]: [null, RelationQualifier.Former],
+    [RelationType.Godparent]: [null],
+    [RelationType.Friend]: [null],
+    [RelationType.Custom]: [null],
+  };
+  if (!allowed[type].includes(qualifier)) {
+    return `"${qualifier}" doesn't apply to a ${type} relation`;
+  }
+
+  if (type === RelationType.Parent && qualifier !== RelationQualifier.Step) {
+    if (graph.isAncestor(relatedPersonId, personId)) {
+      return 'That would make someone their own ancestor';
+    }
+    if (graph.bloodParentCount(relatedPersonId) >= 2) {
+      return 'This person already has two parents; add a step-parent instead';
+    }
+  }
+
+  if (
+    (type === RelationType.Sibling || type === RelationType.Spouse) &&
+    (graph.isAncestor(personId, relatedPersonId) || graph.isAncestor(relatedPersonId, personId))
+  ) {
+    return 'One of them is already an ancestor of the other';
+  }
+
+  return null;
+};
