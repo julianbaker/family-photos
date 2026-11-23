@@ -7307,6 +7307,217 @@
         ]
       }
     },
+    "/family/assets/{id}/comments": {
+      "get": {
+        "description": "Family comments, oldest first.",
+        "operationId": "getFamilyComments",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FamilyCommentResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Comments on a photo",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      },
+      "post": {
+        "description": "Add a family comment to a photo.",
+        "operationId": "createFamilyComment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyCommentCreateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyCommentResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Comment on a photo",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/assets/{id}/people": {
+      "get": {
+        "description": "Who is in the photo, their age when it was taken, and how they relate to you.",
+        "operationId": "getFamilyAssetPeople",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FamilyAssetPersonResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "People in a photo",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/comments/{id}": {
+      "delete": {
+        "description": "The author or a family admin can delete it.",
+        "operationId": "deleteFamilyComment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Delete a comment",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
     "/family/history": {
       "get": {
         "description": "Who changed what, newest first (family admins only).",
@@ -7926,6 +8137,405 @@
           }
         ],
         "summary": "Change a member role",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/people": {
+      "get": {
+        "description": "Everyone in the family tree, with photos or not.",
+        "operationId": "getFamilyPeople",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FamilyPersonResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "List family people",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      },
+      "post": {
+        "description": "Someone with no photos yet, such as an ancestor.",
+        "operationId": "createFamilyPerson",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyPersonCreateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyPersonResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Add a person",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/people/{id}": {
+      "get": {
+        "description": "Name, dates, bio and how they relate to you.",
+        "operationId": "getFamilyPerson",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyPersonResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Get a family person",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      },
+      "put": {
+        "description": "Name, dates, gender, bio, or \"this is me\". Shared with the whole family.",
+        "operationId": "updateFamilyPerson",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyPersonUpdateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyPersonResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Update a family person",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/people/{id}/relatives": {
+      "get": {
+        "description": "Everyone related to this person and how, e.g. their children or grandparents.",
+        "operationId": "getFamilyRelatives",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "keys",
+            "required": false,
+            "in": "query",
+            "description": "Comma-separated relation keys to keep, e.g. child,grandchild",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FamilyRelativeResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Get a person’s relatives",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/relations": {
+      "get": {
+        "description": "Every stored relation in the family tree.",
+        "operationId": "getFamilyRelations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FamilyRelationResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "List relations",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      },
+      "post": {
+        "description": "Parent, spouse, sibling, godparent, friend or custom.",
+        "operationId": "createFamilyRelation",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyRelationCreateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyRelationResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Add a relation",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/relations/{id}": {
+      "delete": {
+        "description": "Remove a stored relation.",
+        "operationId": "deleteFamilyRelation",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Remove a relation",
         "tags": [
           "Family"
         ],
@@ -23721,6 +24331,105 @@
         ],
         "type": "object"
       },
+      "FamilyAssetPersonResponseDto": {
+        "properties": {
+          "age": {
+            "description": "Age when the photo was taken, if the birth date is known",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "nullable": true,
+            "type": "integer"
+          },
+          "faceId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "personId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "relationToMe": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FamilyRelationshipDto"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "age",
+          "faceId",
+          "name",
+          "personId",
+          "relationToMe"
+        ],
+        "type": "object"
+      },
+      "FamilyCommentCreateDto": {
+        "properties": {
+          "text": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "FamilyCommentResponseDto": {
+        "properties": {
+          "assetId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "canDelete": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "example": "2024-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "userId": {
+            "format": "uuid",
+            "nullable": true,
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "userName": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "assetId",
+          "canDelete",
+          "createdAt",
+          "id",
+          "text",
+          "userId",
+          "userName"
+        ],
+        "type": "object"
+      },
       "FamilyCreateDto": {
         "properties": {
           "name": {
@@ -23731,6 +24440,14 @@
           }
         },
         "type": "object"
+      },
+      "FamilyGender": {
+        "description": "Only used for words like \"grandmother\"",
+        "enum": [
+          "female",
+          "male"
+        ],
+        "type": "string"
       },
       "FamilyHistoryResponseDto": {
         "properties": {
@@ -24182,6 +24899,305 @@
         },
         "required": [
           "role"
+        ],
+        "type": "object"
+      },
+      "FamilyPersonCreateDto": {
+        "properties": {
+          "bio": {
+            "description": "Paragraphs, **bold**, *italic* and [links](https://...)",
+            "maxLength": 10000,
+            "nullable": true,
+            "type": "string"
+          },
+          "birthDate": {
+            "description": "Date, YYYY-MM-DD",
+            "format": "date",
+            "nullable": true,
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+            "type": "string"
+          },
+          "deathDate": {
+            "description": "Date, YYYY-MM-DD",
+            "format": "date",
+            "nullable": true,
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+            "type": "string"
+          },
+          "gender": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FamilyGender"
+              }
+            ],
+            "nullable": true
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "FamilyPersonResponseDto": {
+        "properties": {
+          "bio": {
+            "nullable": true,
+            "type": "string"
+          },
+          "birthDate": {
+            "nullable": true,
+            "type": "string"
+          },
+          "deathDate": {
+            "nullable": true,
+            "type": "string"
+          },
+          "faceCount": {
+            "description": "Photos this person is recognised in",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "gender": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FamilyGender"
+              }
+            ],
+            "nullable": true
+          },
+          "id": {
+            "description": "Person ID (the person group, same as in /people)",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "linkedUserId": {
+            "description": "The member account this person is",
+            "format": "uuid",
+            "nullable": true,
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "relationToMe": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FamilyRelationshipDto"
+              }
+            ],
+            "description": "How this person is related to the signed-in member",
+            "nullable": true
+          }
+        },
+        "required": [
+          "bio",
+          "birthDate",
+          "deathDate",
+          "faceCount",
+          "gender",
+          "id",
+          "linkedUserId",
+          "name",
+          "relationToMe"
+        ],
+        "type": "object"
+      },
+      "FamilyPersonUpdateDto": {
+        "properties": {
+          "bio": {
+            "description": "Paragraphs, **bold**, *italic* and [links](https://...)",
+            "maxLength": 10000,
+            "nullable": true,
+            "type": "string"
+          },
+          "birthDate": {
+            "description": "Date, YYYY-MM-DD",
+            "format": "date",
+            "nullable": true,
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+            "type": "string"
+          },
+          "deathDate": {
+            "description": "Date, YYYY-MM-DD",
+            "format": "date",
+            "nullable": true,
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+            "type": "string"
+          },
+          "gender": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FamilyGender"
+              }
+            ],
+            "nullable": true
+          },
+          "linkedUserId": {
+            "description": "Link to a member account (\"this is me\")",
+            "format": "uuid",
+            "nullable": true,
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "FamilyRelationCreateDto": {
+        "properties": {
+          "label": {
+            "description": "Only for custom relations",
+            "maxLength": 100,
+            "minLength": 1,
+            "nullable": true,
+            "type": "string"
+          },
+          "personId": {
+            "description": "For parent and godparent, the parent or godparent",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "qualifier": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FamilyRelationQualifier"
+              }
+            ],
+            "nullable": true
+          },
+          "relatedPersonId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/FamilyRelationType"
+          }
+        },
+        "required": [
+          "personId",
+          "relatedPersonId",
+          "type"
+        ],
+        "type": "object"
+      },
+      "FamilyRelationQualifier": {
+        "description": "step or adopted (parent, sibling), half (sibling), former (spouse)",
+        "enum": [
+          "step",
+          "adopted",
+          "half",
+          "former"
+        ],
+        "type": "string"
+      },
+      "FamilyRelationResponseDto": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "personId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "qualifier": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FamilyRelationQualifier"
+              }
+            ],
+            "nullable": true
+          },
+          "relatedPersonId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/FamilyRelationType"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "personId",
+          "qualifier",
+          "relatedPersonId",
+          "type"
+        ],
+        "type": "object"
+      },
+      "FamilyRelationType": {
+        "description": "Relation type",
+        "enum": [
+          "parent",
+          "spouse",
+          "sibling",
+          "godparent",
+          "friend",
+          "custom"
+        ],
+        "type": "string"
+      },
+      "FamilyRelationshipDto": {
+        "properties": {
+          "key": {
+            "description": "Stable key, e.g. grandparent, first cousin",
+            "type": "string"
+          },
+          "label": {
+            "description": "Words to show, e.g. grandmother",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "type": "object"
+      },
+      "FamilyRelativeResponseDto": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "personId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "name",
+          "personId"
         ],
         "type": "object"
       },

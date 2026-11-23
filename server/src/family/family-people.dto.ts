@@ -1,0 +1,122 @@
+import { createZodDto } from 'nestjs-zod';
+import z from 'zod';
+import { RelationQualifier, RelationType } from 'src/family/family-relations.js';
+import { isoDatetimeToDate } from 'src/validation.js';
+
+const dateOnly = z.iso.date().describe('Date, YYYY-MM-DD');
+const GenderSchema = z
+  .enum(['female', 'male'])
+  .describe('Only used for words like "grandmother"')
+  .meta({ id: 'FamilyGender' });
+const RelationTypeSchema = z.enum(RelationType).describe('Relation type').meta({ id: 'FamilyRelationType' });
+const RelationQualifierSchema = z
+  .enum(RelationQualifier)
+  .describe('step or adopted (parent, sibling), half (sibling), former (spouse)')
+  .meta({ id: 'FamilyRelationQualifier' });
+
+const RelationshipSchema = z
+  .object({
+    key: z.string().describe('Stable key, e.g. grandparent, first cousin'),
+    label: z.string().describe('Words to show, e.g. grandmother'),
+  })
+  .meta({ id: 'FamilyRelationshipDto' });
+
+const FamilyPersonResponseSchema = z
+  .object({
+    id: z.uuidv4().describe('Person ID (the person group, same as in /people)'),
+    name: z.string(),
+    birthDate: z.string().nullable(),
+    deathDate: z.string().nullable(),
+    gender: GenderSchema.nullable(),
+    bio: z.string().nullable(),
+    linkedUserId: z.uuidv4().nullable().describe('The member account this person is'),
+    faceCount: z.number().int().describe('Photos this person is recognised in'),
+    relationToMe: RelationshipSchema.nullable().describe('How this person is related to the signed-in member'),
+  })
+  .meta({ id: 'FamilyPersonResponseDto' });
+
+const personFields = {
+  name: z.string().trim().min(1).max(200),
+  birthDate: dateOnly.nullable().optional(),
+  deathDate: dateOnly.nullable().optional(),
+  gender: GenderSchema.nullable().optional(),
+  bio: z.string().max(10_000).nullable().optional().describe('Paragraphs, **bold**, *italic* and [links](https://...)'),
+};
+
+const FamilyPersonCreateSchema = z.object(personFields).meta({ id: 'FamilyPersonCreateDto' });
+
+const FamilyPersonUpdateSchema = z
+  .object({
+    ...personFields,
+    name: personFields.name.optional(),
+    linkedUserId: z.uuidv4().nullable().optional().describe('Link to a member account ("this is me")'),
+  })
+  .meta({ id: 'FamilyPersonUpdateDto' });
+
+const FamilyRelationCreateSchema = z
+  .object({
+    personId: z.uuidv4().describe('For parent and godparent, the parent or godparent'),
+    relatedPersonId: z.uuidv4(),
+    type: RelationTypeSchema,
+    qualifier: RelationQualifierSchema.nullable().optional(),
+    label: z.string().trim().min(1).max(100).nullable().optional().describe('Only for custom relations'),
+  })
+  .meta({ id: 'FamilyRelationCreateDto' });
+
+const FamilyRelationResponseSchema = z
+  .object({
+    id: z.uuidv4(),
+    personId: z.uuidv4(),
+    relatedPersonId: z.uuidv4(),
+    type: RelationTypeSchema,
+    qualifier: RelationQualifierSchema.nullable(),
+    label: z.string().nullable(),
+  })
+  .meta({ id: 'FamilyRelationResponseDto' });
+
+const FamilyRelativeResponseSchema = z
+  .object({ personId: z.uuidv4(), name: z.string(), key: z.string(), label: z.string() })
+  .meta({ id: 'FamilyRelativeResponseDto' });
+
+const FamilyRelativesQuerySchema = z
+  .object({
+    keys: z.string().optional().describe('Comma-separated relation keys to keep, e.g. child,grandchild'),
+  })
+  .meta({ id: 'FamilyRelativesQueryDto' });
+
+const FamilyAssetPersonResponseSchema = z
+  .object({
+    faceId: z.uuidv4(),
+    personId: z.uuidv4(),
+    name: z.string(),
+    age: z.number().int().nullable().describe('Age when the photo was taken, if the birth date is known'),
+    relationToMe: RelationshipSchema.nullable(),
+  })
+  .meta({ id: 'FamilyAssetPersonResponseDto' });
+
+const FamilyCommentCreateSchema = z
+  .object({ text: z.string().trim().min(1).max(2000) })
+  .meta({ id: 'FamilyCommentCreateDto' });
+
+const FamilyCommentResponseSchema = z
+  .object({
+    id: z.uuidv4(),
+    assetId: z.uuidv4(),
+    userId: z.uuidv4().nullable(),
+    userName: z.string().nullable(),
+    text: z.string(),
+    createdAt: isoDatetimeToDate,
+    canDelete: z.boolean(),
+  })
+  .meta({ id: 'FamilyCommentResponseDto' });
+
+export class FamilyPersonResponseDto extends createZodDto(FamilyPersonResponseSchema) {}
+export class FamilyPersonCreateDto extends createZodDto(FamilyPersonCreateSchema) {}
+export class FamilyPersonUpdateDto extends createZodDto(FamilyPersonUpdateSchema) {}
+export class FamilyRelationCreateDto extends createZodDto(FamilyRelationCreateSchema) {}
+export class FamilyRelationResponseDto extends createZodDto(FamilyRelationResponseSchema) {}
+export class FamilyRelativeResponseDto extends createZodDto(FamilyRelativeResponseSchema) {}
+export class FamilyRelativesQueryDto extends createZodDto(FamilyRelativesQuerySchema) {}
+export class FamilyAssetPersonResponseDto extends createZodDto(FamilyAssetPersonResponseSchema) {}
+export class FamilyCommentCreateDto extends createZodDto(FamilyCommentCreateSchema) {}
+export class FamilyCommentResponseDto extends createZodDto(FamilyCommentResponseSchema) {}

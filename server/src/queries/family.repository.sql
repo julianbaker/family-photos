@@ -273,3 +273,143 @@ from
 where
   "id" = $1
   and "familyId" = $2
+
+-- FamilyRepository.seedFamilyPeople
+insert into
+  "family_person" ("personGroupId", "familyId", "name", "birthDate")
+select distinct
+  on (p."personGroupId") p."personGroupId",
+  f."id",
+  p."name",
+  p."birthDate"
+from
+  "person" p
+  join "person_group" pg on pg."id" = p."personGroupId"
+  join "family" f on f."clusterGroupId" = pg."clusterGroupId"
+  and f."id" = $1
+  left join "family_member" m on m."userId" = p."ownerId"
+  and m."familyId" = f."id"
+where
+  not exists (
+    select
+      1
+    from
+      "family_person" fp
+    where
+      fp."personGroupId" = p."personGroupId"
+  )
+order by
+  p."personGroupId",
+  p."name" = '',
+  m."role" = 'admin' desc,
+  p."birthDate" is null
+on conflict ("personGroupId") do nothing
+
+-- FamilyRepository.mirrorFamilyPeople
+insert into
+  "person" ("ownerId", "personGroupId", "name", "birthDate")
+select
+  m."userId",
+  fp."personGroupId",
+  fp."name",
+  fp."birthDate"
+from
+  "family_person" fp
+  join "family_member" m on m."familyId" = fp."familyId"
+where
+  fp."familyId" = $1
+  and fp."personGroupId" = $2
+on conflict ("ownerId", "personGroupId") do update
+set
+  "name" = excluded."name",
+  "birthDate" = excluded."birthDate"
+where
+  "person"."name" is distinct from excluded."name"
+  or "person"."birthDate" is distinct from excluded."birthDate"
+
+-- FamilyRepository.getFamilyPeople
+select
+  "family_person".*,
+  (
+    select
+      count(*) as "count"
+    from
+      "asset_face"
+    where
+      "asset_face"."personGroupId" = "family_person"."personGroupId"
+      and "asset_face"."deletedAt" is null
+      and "asset_face"."isVisible" = $1
+  ) as "faceCount"
+from
+  "family_person"
+where
+  "family_person"."familyId" = $2
+order by
+  "family_person"."name" asc
+
+-- FamilyRepository.getFamilyPerson
+select
+  *
+from
+  "family_person"
+where
+  "familyId" = $1
+  and "personGroupId" = $2
+
+-- FamilyRepository.getRelations
+select
+  *
+from
+  "family_relation"
+where
+  "familyId" = $1
+
+-- FamilyRepository.deleteRelation
+delete from "family_relation"
+where
+  "id" = $1
+  and "familyId" = $2
+returning
+  *
+
+-- FamilyRepository.getAssetPeople
+select
+  "asset_face"."id" as "faceId",
+  "family_person"."personGroupId",
+  "family_person"."name",
+  "family_person"."birthDate",
+  "family_person"."deathDate",
+  "asset"."localDateTime"
+from
+  "asset_face"
+  inner join "asset" on "asset"."id" = "asset_face"."assetId"
+  inner join "family_person" on "family_person"."personGroupId" = "asset_face"."personGroupId"
+where
+  "asset_face"."assetId" = $1
+  and "asset_face"."deletedAt" is null
+  and "asset_face"."isVisible" = $2
+  and "family_person"."familyId" = $3
+order by
+  "asset_face"."boundingBoxX1" asc
+
+-- FamilyRepository.getComments
+select
+  "family_comment".*,
+  "user"."name" as "userName"
+from
+  "family_comment"
+  left join "user" on "user"."id" = "family_comment"."userId"
+where
+  "family_comment"."familyId" = $1
+  and "family_comment"."assetId" = $2
+order by
+  "family_comment"."createdAt" asc
+
+-- FamilyRepository.getComment
+select
+  *
+from
+  "family_comment"
+where
+  "id" = $1
+  and "familyId" = $2

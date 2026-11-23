@@ -1,4 +1,5 @@
 import { FamilyInviteService } from 'src/family/family-invite.service.js';
+import { FamilyPeopleService } from 'src/family/family-people.service.js';
 import { FamilyService } from 'src/family/family.service.js';
 import { ActivityService } from 'src/services/activity.service.js';
 import { AlbumService } from 'src/services/album.service.js';
@@ -115,4 +116,5 @@ export const services = [
   // family fork
   FamilyService,
   FamilyInviteService,
+  FamilyPeopleService,
 ];

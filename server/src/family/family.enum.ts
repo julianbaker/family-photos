@@ -19,6 +19,11 @@ export enum FamilyHistoryAction {
   InviteRequestCreate = 'invite-request.create',
   InviteRequestApprove = 'invite-request.approve',
   InviteRequestDecline = 'invite-request.decline',
+  PersonCreate = 'person.create',
+  PersonUpdate = 'person.update',
+  RelationCreate = 'relation.create',
+  RelationDelete = 'relation.delete',
+  CommentDelete = 'comment.delete',
 }
 
 export enum FamilyInviteRequestStatus {

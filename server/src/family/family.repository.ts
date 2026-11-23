@@ -1,13 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import { Insertable, Kysely, sql } from 'kysely';
+import { Insertable, Kysely, Updateable, sql } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { InjectKysely } from 'nestjs-kysely';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
 import { AlbumUserRole } from 'src/enum.js';
 import { FamilyInviteRequestStatus, FamilyRole } from 'src/family/family.enum.js';
+import { FamilyCommentTable } from 'src/family/schema/family-comment.table.js';
 import { FamilyHistoryTable } from 'src/family/schema/family-history.table.js';
 import { FamilyInviteRequestTable } from 'src/family/schema/family-invite-request.table.js';
 import { FamilyInviteTable } from 'src/family/schema/family-invite.table.js';
+import { FamilyPersonTable } from 'src/family/schema/family-person.table.js';
+import { FamilyRelationTable } from 'src/family/schema/family-relation.table.js';
 import { DB } from 'src/schema/index.js';
 import { anyUuid } from 'src/utils/database.js';
 
@@ -385,5 +388,183 @@ export class FamilyRepository {
       .where('status', '=', FamilyInviteRequestStatus.Pending)
       .returningAll()
       .executeTakeFirst();
+  }
+
+  // people
+
+  /**
+  Creates the family's shared record for every person group in the family's cluster group that has
+  none yet, taking the name and birth date from the members' own copies: a named copy first, a family
+  admin's first, one with a birth date first.
+  */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  async seedFamilyPeople(familyId: string): Promise<void> {
+    await sql`
+      insert into "family_person" ("personGroupId", "familyId", "name", "birthDate")
+      select distinct on (p."personGroupId") p."personGroupId", f."id", p."name", p."birthDate"
+      from "person" p
+      join "person_group" pg on pg."id" = p."personGroupId"
+      join "family" f on f."clusterGroupId" = pg."clusterGroupId" and f."id" = ${familyId}
+      left join "family_member" m on m."userId" = p."ownerId" and m."familyId" = f."id"
+      where not exists (select 1 from "family_person" fp where fp."personGroupId" = p."personGroupId")
+      order by p."personGroupId", p."name" = '', m."role" = 'admin' desc, p."birthDate" is null
+      on conflict ("personGroupId") do nothing
+    `.execute(this.db);
+  }
+
+  /**
+  Copies the family's names and birth dates into every member's own person rows, creating the rows
+  members don't have yet. Stock screens, name search and the mobile sync read those rows.
+  */
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  async mirrorFamilyPeople(familyId: string, personGroupId?: string): Promise<void> {
+    await sql`
+      insert into "person" ("ownerId", "personGroupId", "name", "birthDate")
+      select m."userId", fp."personGroupId", fp."name", fp."birthDate"
+      from "family_person" fp
+      join "family_member" m on m."familyId" = fp."familyId"
+      where fp."familyId" = ${familyId}
+      ${personGroupId ? sql`and fp."personGroupId" = ${personGroupId}` : sql``}
+      on conflict ("ownerId", "personGroupId") do update
+        set "name" = excluded."name", "birthDate" = excluded."birthDate"
+        where "person"."name" is distinct from excluded."name"
+          or "person"."birthDate" is distinct from excluded."birthDate"
+    `.execute(this.db);
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID] })
+  getFamilyPeople(familyId: string) {
+    return this.db
+      .selectFrom('family_person')
+      .selectAll('family_person')
+      .select((eb) =>
+        eb
+          .selectFrom('asset_face')
+          .select((eb) => eb.fn.countAll<number>().as('count'))
+          .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
+          .where('asset_face.deletedAt', 'is', null)
+          .where('asset_face.isVisible', '=', true)
+          .as('faceCount'),
+      )
+      .where('family_person.familyId', '=', familyId)
+      .orderBy('family_person.name', 'asc')
+      .execute();
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  getFamilyPerson(familyId: string, personGroupId: string) {
+    return this.db
+      .selectFrom('family_person')
+      .selectAll()
+      .where('familyId', '=', familyId)
+      .where('personGroupId', '=', personGroupId)
+      .executeTakeFirst();
+  }
+
+  updateFamilyPerson(personGroupId: string, values: Updateable<FamilyPersonTable>) {
+    return this.db
+      .updateTable('family_person')
+      .set(values)
+      .where('personGroupId', '=', personGroupId)
+      .returningAll()
+      .executeTakeFirstOrThrow();
+  }
+
+  /** A person with no photos yet (an ancestor): a person group of their own in the family's cluster group. */
+  async createFamilyPerson(
+    family: { id: string; clusterGroupId: string },
+    values: Omit<Insertable<FamilyPersonTable>, 'personGroupId' | 'familyId'>,
+  ) {
+    return this.db.transaction().execute(async (trx) => {
+      const group = await trx
+        .insertInto('person_group')
+        .values({ clusterGroupId: family.clusterGroupId })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      return trx
+        .insertInto('family_person')
+        .values({ ...values, personGroupId: group.id, familyId: family.id })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+    });
+  }
+
+  // relations
+
+  @GenerateSql({ params: [DummyValue.UUID] })
+  getRelations(familyId: string) {
+    return this.db.selectFrom('family_relation').selectAll().where('familyId', '=', familyId).execute();
+  }
+
+  createRelation(relation: Insertable<FamilyRelationTable>) {
+    return this.db.insertInto('family_relation').values(relation).returningAll().executeTakeFirstOrThrow();
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  deleteRelation(id: string, familyId: string) {
+    return this.db
+      .deleteFrom('family_relation')
+      .where('id', '=', id)
+      .where('familyId', '=', familyId)
+      .returningAll()
+      .executeTakeFirst();
+  }
+
+  // photos
+
+  /** The named or recorded people in a photo, for ages and relation words. */
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  getAssetPeople(familyId: string, assetId: string) {
+    return this.db
+      .selectFrom('asset_face')
+      .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+      .innerJoin('family_person', 'family_person.personGroupId', 'asset_face.personGroupId')
+      .select([
+        'asset_face.id as faceId',
+        'family_person.personGroupId',
+        'family_person.name',
+        'family_person.birthDate',
+        'family_person.deathDate',
+        'asset.localDateTime',
+      ])
+      .where('asset_face.assetId', '=', assetId)
+      .where('asset_face.deletedAt', 'is', null)
+      .where('asset_face.isVisible', '=', true)
+      .where('family_person.familyId', '=', familyId)
+      .orderBy('asset_face.boundingBoxX1', 'asc')
+      .execute();
+  }
+
+  // comments
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  getComments(familyId: string, assetId: string) {
+    return this.db
+      .selectFrom('family_comment')
+      .leftJoin('user', 'user.id', 'family_comment.userId')
+      .selectAll('family_comment')
+      .select('user.name as userName')
+      .where('family_comment.familyId', '=', familyId)
+      .where('family_comment.assetId', '=', assetId)
+      .orderBy('family_comment.createdAt', 'asc')
+      .execute();
+  }
+
+  createComment(comment: Insertable<FamilyCommentTable>) {
+    return this.db.insertInto('family_comment').values(comment).returningAll().executeTakeFirstOrThrow();
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  getComment(id: string, familyId: string) {
+    return this.db
+      .selectFrom('family_comment')
+      .selectAll()
+      .where('id', '=', id)
+      .where('familyId', '=', familyId)
+      .executeTakeFirst();
+  }
+
+  async deleteComment(id: string): Promise<void> {
+    await this.db.deleteFrom('family_comment').where('id', '=', id).execute();
   }
 }

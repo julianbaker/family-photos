@@ -41,6 +41,7 @@ import {
   SystemMetadataKey,
   VectorIndex,
 } from 'src/enum.js';
+import { FamilyPeopleService } from 'src/family/family-people.service.js';
 import { BoundingBox } from 'src/repositories/machine-learning.repository.js';
 import { PersonId } from 'src/repositories/person.repository.js';
 import { DB } from 'src/schema/index.js';
@@ -257,6 +258,8 @@ export class PersonService extends BaseService {
 
     if (!userIdOverride && hasSharedProperties) {
       await this.personRepository.updateForWritableOwners({ userId: auth.user.id, personGroupId }, { name, birthDate });
+      // family fork: names and birth dates are shared with the whole family
+      await BaseService.create(FamilyPeopleService, this).onStockPersonUpdate(auth, personGroupId, { name, birthDate });
     }
 
     let faceId: string | undefined;

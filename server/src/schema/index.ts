@@ -55,7 +55,10 @@ import { FamilyHistoryTable } from 'src/family/schema/family-history.table.js';
 import { FamilyInviteRequestTable } from 'src/family/schema/family-invite-request.table.js';
 import { FamilyInviteUseTable } from 'src/family/schema/family-invite-use.table.js';
 import { FamilyInviteTable } from 'src/family/schema/family-invite.table.js';
+import { FamilyCommentTable } from 'src/family/schema/family-comment.table.js';
 import { FamilyMemberTable } from 'src/family/schema/family-member.table.js';
+import { FamilyPersonTable } from 'src/family/schema/family-person.table.js';
+import { FamilyRelationTable } from 'src/family/schema/family-relation.table.js';
 import { FamilyTable } from 'src/family/schema/family.table.js';
 import { ClusterGroupRequestTable } from 'src/schema/tables/cluster-group-request.table.js';
 import { ClusterGroupTable } from 'src/schema/tables/cluster-group.table.js';
@@ -141,6 +144,9 @@ export class ImmichDatabase {
     FamilyInviteTable,
     FamilyInviteUseTable,
     FamilyInviteRequestTable,
+    FamilyPersonTable,
+    FamilyRelationTable,
+    FamilyCommentTable,
     FaceSearchTable,
     GeodataPlacesTable,
     IntegrityReportTable,
@@ -299,6 +305,9 @@ export interface DB {
   family_invite: FamilyInviteTable;
   family_invite_use: FamilyInviteUseTable;
   family_invite_request: FamilyInviteRequestTable;
+  family_person: FamilyPersonTable;
+  family_relation: FamilyRelationTable;
+  family_comment: FamilyCommentTable;
 
   session: SessionTable;
   session_sync_checkpoint: SessionSyncCheckpointTable;

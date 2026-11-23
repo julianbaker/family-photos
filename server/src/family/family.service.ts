@@ -162,6 +162,9 @@ export class FamilyService extends BaseService {
     await this.familyRepository.addMember({ userId, familyId: membership.familyId, role, addedById: actor.userId });
     await this.familyRepository.ensurePartnerMesh(membership.familyId);
     await this.familyRepository.ensureAlbumUsers(membership.familyId);
+    // the new member's people join the family's, and they get the family's names
+    await this.familyRepository.seedFamilyPeople(membership.familyId);
+    await this.familyRepository.mirrorFamilyPeople(membership.familyId);
     await this.familyRepository.addHistory({
       familyId: membership.familyId,
       userId: actor.userId,

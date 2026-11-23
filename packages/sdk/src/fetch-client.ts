@@ -1797,6 +1797,32 @@ export type FamilyCreateDto = {
     /** Family name */
     name?: string;
 };
+export type FamilyCommentResponseDto = {
+    assetId: string;
+    canDelete: boolean;
+    createdAt: string;
+    id: string;
+    text: string;
+    userId: string | null;
+    userName: string | null;
+};
+export type FamilyCommentCreateDto = {
+    text: string;
+};
+export type FamilyRelationshipDto = {
+    /** Stable key, e.g. grandparent, first cousin */
+    key: string;
+    /** Words to show, e.g. grandmother */
+    label: string;
+};
+export type FamilyAssetPersonResponseDto = {
+    /** Age when the photo was taken, if the birth date is known */
+    age: number | null;
+    faceId: string;
+    name: string;
+    personId: string;
+    relationToMe: (FamilyRelationshipDto) | null;
+};
 export type FamilyHistoryResponseDto = {
     action: string;
     after: {
@@ -1899,6 +1925,66 @@ export type FamilyMemberCreateDto = {
 };
 export type FamilyMemberUpdateDto = {
     role: FamilyRole;
+};
+export type FamilyPersonResponseDto = {
+    bio: string | null;
+    birthDate: string | null;
+    deathDate: string | null;
+    /** Photos this person is recognised in */
+    faceCount: number;
+    gender: (FamilyGender) | null;
+    /** Person ID (the person group, same as in /people) */
+    id: string;
+    /** The member account this person is */
+    linkedUserId: string | null;
+    name: string;
+    /** How this person is related to the signed-in member */
+    relationToMe: (FamilyRelationshipDto) | null;
+};
+export type FamilyPersonCreateDto = {
+    /** Paragraphs, **bold**, *italic* and [links](https://...) */
+    bio?: string | null;
+    /** Date, YYYY-MM-DD */
+    birthDate?: string | null;
+    /** Date, YYYY-MM-DD */
+    deathDate?: string | null;
+    gender?: (FamilyGender) | null;
+    name: string;
+};
+export type FamilyPersonUpdateDto = {
+    /** Paragraphs, **bold**, *italic* and [links](https://...) */
+    bio?: string | null;
+    /** Date, YYYY-MM-DD */
+    birthDate?: string | null;
+    /** Date, YYYY-MM-DD */
+    deathDate?: string | null;
+    gender?: (FamilyGender) | null;
+    /** Link to a member account ("this is me") */
+    linkedUserId?: string | null;
+    name?: string;
+};
+export type FamilyRelativeResponseDto = {
+    key: string;
+    label: string;
+    name: string;
+    personId: string;
+};
+export type FamilyRelationResponseDto = {
+    id: string;
+    label: string | null;
+    personId: string;
+    qualifier: (FamilyRelationQualifier) | null;
+    relatedPersonId: string;
+    "type": FamilyRelationType;
+};
+export type FamilyRelationCreateDto = {
+    /** Only for custom relations */
+    label?: string | null;
+    /** For parent and godparent, the parent or godparent */
+    personId: string;
+    qualifier?: (FamilyRelationQualifier) | null;
+    relatedPersonId: string;
+    "type": FamilyRelationType;
 };
 export type QueueStatisticsDto = {
     /** Number of active jobs */
@@ -5784,6 +5870,59 @@ export function createFamily({ familyCreateDto }: {
     })));
 }
 /**
+ * Comments on a photo
+ */
+export function getFamilyComments({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyCommentResponseDto[];
+    }>(`/family/assets/${encodeURIComponent(id)}/comments`, {
+        ...opts
+    }));
+}
+/**
+ * Comment on a photo
+ */
+export function createFamilyComment({ id, familyCommentCreateDto }: {
+    id: string;
+    familyCommentCreateDto: FamilyCommentCreateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: FamilyCommentResponseDto;
+    }>(`/family/assets/${encodeURIComponent(id)}/comments`, oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyCommentCreateDto
+    })));
+}
+/**
+ * People in a photo
+ */
+export function getFamilyAssetPeople({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyAssetPersonResponseDto[];
+    }>(`/family/assets/${encodeURIComponent(id)}/people`, {
+        ...opts
+    }));
+}
+/**
+ * Delete a comment
+ */
+export function deleteFamilyComment({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText(`/family/comments/${encodeURIComponent(id)}`, {
+        ...opts,
+        method: "DELETE"
+    }));
+}
+/**
  * Get the family history
  */
 export function getFamilyHistory({ skip, take }: {
@@ -5961,6 +6100,114 @@ export function updateFamilyMember({ id, familyMemberUpdateDto }: {
         method: "PUT",
         body: familyMemberUpdateDto
     })));
+}
+/**
+ * List family people
+ */
+export function getFamilyPeople(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyPersonResponseDto[];
+    }>("/family/people", {
+        ...opts
+    }));
+}
+/**
+ * Add a person
+ */
+export function createFamilyPerson({ familyPersonCreateDto }: {
+    familyPersonCreateDto: FamilyPersonCreateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: FamilyPersonResponseDto;
+    }>("/family/people", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyPersonCreateDto
+    })));
+}
+/**
+ * Get a family person
+ */
+export function getFamilyPerson({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyPersonResponseDto;
+    }>(`/family/people/${encodeURIComponent(id)}`, {
+        ...opts
+    }));
+}
+/**
+ * Update a family person
+ */
+export function updateFamilyPerson({ id, familyPersonUpdateDto }: {
+    id: string;
+    familyPersonUpdateDto: FamilyPersonUpdateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyPersonResponseDto;
+    }>(`/family/people/${encodeURIComponent(id)}`, oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: familyPersonUpdateDto
+    })));
+}
+/**
+ * Get a person’s relatives
+ */
+export function getFamilyRelatives({ id, keys }: {
+    id: string;
+    keys?: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyRelativeResponseDto[];
+    }>(`/family/people/${encodeURIComponent(id)}/relatives${QS.query(QS.explode({
+        keys
+    }))}`, {
+        ...opts
+    }));
+}
+/**
+ * List relations
+ */
+export function getFamilyRelations(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyRelationResponseDto[];
+    }>("/family/relations", {
+        ...opts
+    }));
+}
+/**
+ * Add a relation
+ */
+export function createFamilyRelation({ familyRelationCreateDto }: {
+    familyRelationCreateDto: FamilyRelationCreateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: FamilyRelationResponseDto;
+    }>("/family/relations", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyRelationCreateDto
+    })));
+}
+/**
+ * Remove a relation
+ */
+export function deleteFamilyRelation({ id }: {
+    id: string;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchText(`/family/relations/${encodeURIComponent(id)}`, {
+        ...opts,
+        method: "DELETE"
+    }));
 }
 /**
  * Retrieve queue counts and status
@@ -8893,6 +9140,24 @@ export enum FamilyInviteStatus {
     UsedUp = "used-up",
     Expired = "expired",
     Revoked = "revoked"
+}
+export enum FamilyGender {
+    Female = "female",
+    Male = "male"
+}
+export enum FamilyRelationQualifier {
+    Step = "step",
+    Adopted = "adopted",
+    Half = "half",
+    Former = "former"
+}
+export enum FamilyRelationType {
+    Parent = "parent",
+    Spouse = "spouse",
+    Sibling = "sibling",
+    Godparent = "godparent",
+    Friend = "friend",
+    Custom = "custom"
 }
 export enum ManualJobName {
     PersonCleanup = "person-cleanup",

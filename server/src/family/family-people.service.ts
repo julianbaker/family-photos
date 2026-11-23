@@ -1,0 +1,519 @@
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { Selectable } from 'kysely';
+import { OnEvent } from 'src/decorators.js';
+import { AuthDto } from 'src/dtos/auth.dto.js';
+import { ImmichWorker, JobName } from 'src/enum.js';
+import { CONTRIBUTOR_ROLES, requireFamilyRole } from 'src/family/family-membership.js';
+import {
+  FamilyAssetPersonResponseDto,
+  FamilyCommentCreateDto,
+  FamilyCommentResponseDto,
+  FamilyPersonCreateDto,
+  FamilyPersonResponseDto,
+  FamilyPersonUpdateDto,
+  FamilyRelationCreateDto,
+  FamilyRelationResponseDto,
+  FamilyRelativeResponseDto,
+  FamilyRelativesQueryDto,
+} from 'src/family/family-people.dto.js';
+import {
+  FamilyGraph,
+  Gender,
+  RelationQualifier,
+  RelationType,
+  Relationship,
+  StoredRelation,
+  validateRelation,
+} from 'src/family/family-relations.js';
+import { FamilyHistoryAction, FamilyRole } from 'src/family/family.enum.js';
+import { isFamilyEnabled } from 'src/family/family.flag.js';
+import { FamilyMembership } from 'src/family/family.repository.js';
+import { FamilyPersonTable } from 'src/family/schema/family-person.table.js';
+import { FamilyRelationTable } from 'src/family/schema/family-relation.table.js';
+import type { ArgOf } from 'src/repositories/event.repository.js';
+import { BaseService } from 'src/services/base.service.js';
+
+type PersonRow = Selectable<FamilyPersonTable> & { faceCount?: number | string | null };
+
+/** 'YYYY-MM-DD' from a date column, whatever form the driver returns it in. */
+export const toDateString = (value: unknown): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+  return String(value).slice(0, 10);
+};
+
+/** Age in whole years on `on` (a local date-time); null when the birth date is unknown or after the photo. */
+export const ageOn = (birthDate: string | null, on: unknown): number | null => {
+  if (!birthDate || !on) {
+    return null;
+  }
+  const taken = toDateString(on)!;
+  if (taken < birthDate) {
+    return null;
+  }
+  const [by, bm, bd] = birthDate.split('-').map(Number);
+  const [ty, tm, td] = taken.split('-').map(Number);
+  let age = ty - by;
+  if (tm < bm || (tm === bm && td < bd)) {
+    age--;
+  }
+  return age;
+};
+
+/** Spouse, sibling and friend are stored once, smaller ID first. */
+const UNDIRECTED = new Set([RelationType.Spouse, RelationType.Sibling, RelationType.Friend]);
+const isUndirected = (type: RelationType) => UNDIRECTED.has(type);
+
+const RECONCILE_DELAY_MS = 15_000;
+
+@Injectable()
+export class FamilyPeopleService extends BaseService {
+  private reconcileTimer?: NodeJS.Timeout;
+
+  async getAll(auth: AuthDto): Promise<FamilyPersonResponseDto[]> {
+    const membership = await requireFamilyRole(this.familyRepository, auth);
+    const [people, graph] = await Promise.all([
+      this.familyRepository.getFamilyPeople(membership.familyId),
+      this.getGraph(membership.familyId),
+    ]);
+    const me = people.find((person) => person.linkedUserId === auth.user.id)?.personGroupId;
+    return people.map((person) => this.mapPerson(person, graph, me));
+  }
+
+  async get(auth: AuthDto, id: string): Promise<FamilyPersonResponseDto> {
+    const membership = await requireFamilyRole(this.familyRepository, auth);
+    const person = await this.requirePerson(membership, id);
+    const people = await this.familyRepository.getFamilyPeople(membership.familyId);
+    const me = people.find((item) => item.linkedUserId === auth.user.id)?.personGroupId;
+    const withCount = people.find((item) => item.personGroupId === id) ?? person;
+    return this.mapPerson(withCount, await this.getGraph(membership.familyId), me);
+  }
+
+  /** Someone with no photos yet, usually an ancestor. */
+  async create(auth: AuthDto, dto: FamilyPersonCreateDto): Promise<FamilyPersonResponseDto> {
+    const membership = await requireFamilyRole(this.familyRepository, auth, CONTRIBUTOR_ROLES);
+    const person = await this.familyRepository.createFamilyPerson(
+      { id: membership.familyId, clusterGroupId: membership.clusterGroupId },
+      {
+        name: dto.name,
+        birthDate: dto.birthDate ?? null,
+        deathDate: dto.deathDate ?? null,
+        gender: dto.gender ?? null,
+        bio: dto.bio ?? null,
+        updatedById: auth.user.id,
+      },
+    );
+    await this.familyRepository.mirrorFamilyPeople(membership.familyId, person.personGroupId);
+    await this.recordHistory(membership, auth, FamilyHistoryAction.PersonCreate, person.personGroupId, null, {
+      name: person.name,
+    });
+    return this.get(auth, person.personGroupId);
+  }
+
+  async update(auth: AuthDto, id: string, dto: FamilyPersonUpdateDto): Promise<FamilyPersonResponseDto> {
+    const membership = await requireFamilyRole(this.familyRepository, auth, CONTRIBUTOR_ROLES);
+    const before = await this.requirePerson(membership, id);
+
+    if (dto.linkedUserId !== undefined) {
+      await this.checkLink(membership, auth, before, dto.linkedUserId);
+    }
+
+    const deathDate = dto.deathDate === undefined ? toDateString(before.deathDate) : dto.deathDate;
+    const birthDate = dto.birthDate === undefined ? toDateString(before.birthDate) : dto.birthDate;
+    if (deathDate && birthDate && deathDate < birthDate) {
+      throw new BadRequestException('The date of death is before the birth date');
+    }
+
+    const changes = Object.fromEntries(
+      Object.entries({
+        name: dto.name,
+        birthDate: dto.birthDate,
+        deathDate: dto.deathDate,
+        gender: dto.gender,
+        bio: dto.bio,
+        linkedUserId: dto.linkedUserId,
+      }).filter(([, value]) => value !== undefined),
+    );
+    if (Object.keys(changes).length === 0) {
+      return this.get(auth, id);
+    }
+
+    await this.familyRepository.updateFamilyPerson(id, { ...changes, updatedById: auth.user.id });
+    if (dto.name !== undefined || dto.birthDate !== undefined) {
+      await this.familyRepository.mirrorFamilyPeople(membership.familyId, id);
+    }
+
+    const previous = Object.fromEntries(
+      Object.keys(changes).map((key) => {
+        const value = before[key as keyof typeof before];
+        return [key, key.endsWith('Date') ? toDateString(value) : value];
+      }),
+    );
+    await this.recordHistory(membership, auth, FamilyHistoryAction.PersonUpdate, id, previous, changes);
+    return this.get(auth, id);
+  }
+
+  /**
+  Called after the stock "update person" endpoint changed a name or birth date: makes that the family's
+  value and copies it to every member, so edits from stock screens and the mobile app are shared too.
+  */
+  async onStockPersonUpdate(auth: AuthDto, id: string, values: { name?: string; birthDate?: Date | string | null }) {
+    if (!isFamilyEnabled()) {
+      return;
+    }
+    const membership = await this.familyRepository.getMembership(auth.user.id);
+    if (!membership || membership.role === FamilyRole.Viewer) {
+      return;
+    }
+    const before = await this.familyRepository.getFamilyPerson(membership.familyId, id);
+    if (!before) {
+      return;
+    }
+
+    const changes: { name?: string; birthDate?: string | null } = {};
+    if (values.name !== undefined && values.name !== before.name) {
+      changes.name = values.name;
+    }
+    if (values.birthDate !== undefined && toDateString(values.birthDate) !== toDateString(before.birthDate)) {
+      changes.birthDate = toDateString(values.birthDate);
+    }
+    if (Object.keys(changes).length === 0) {
+      return;
+    }
+
+    await this.familyRepository.updateFamilyPerson(id, { ...changes, updatedById: auth.user.id });
+    await this.familyRepository.mirrorFamilyPeople(membership.familyId, id);
+    await this.recordHistory(
+      membership,
+      auth,
+      FamilyHistoryAction.PersonUpdate,
+      id,
+      { name: before.name, birthDate: toDateString(before.birthDate) },
+      changes,
+    );
+  }
+
+  async getRelatives(auth: AuthDto, id: string, dto: FamilyRelativesQueryDto): Promise<FamilyRelativeResponseDto[]> {
+    const membership = await requireFamilyRole(this.familyRepository, auth);
+    await this.requirePerson(membership, id);
+    const [people, graph] = await Promise.all([
+      this.familyRepository.getFamilyPeople(membership.familyId),
+      this.getGraph(membership.familyId),
+    ]);
+    const names = new Map(people.map((person) => [person.personGroupId, person.name]));
+    const keys = dto.keys
+      ?.split(',')
+      .map((key) => key.trim())
+      .filter(Boolean);
+    return graph
+      .relatives(id)
+      .filter((relative) => !keys || keys.includes(relative.key))
+      .map((relative) => ({ ...relative, name: names.get(relative.personId) ?? '' }));
+  }
+
+  async getRelations(auth: AuthDto): Promise<FamilyRelationResponseDto[]> {
+    const membership = await requireFamilyRole(this.familyRepository, auth);
+    const relations = await this.familyRepository.getRelations(membership.familyId);
+    return relations.map((relation) => this.mapRelation(relation));
+  }
+
+  async createRelation(auth: AuthDto, dto: FamilyRelationCreateDto): Promise<FamilyRelationResponseDto> {
+    const membership = await requireFamilyRole(this.familyRepository, auth, CONTRIBUTOR_ROLES);
+    await this.requirePerson(membership, dto.personId);
+    await this.requirePerson(membership, dto.relatedPersonId);
+
+    let { personId, relatedPersonId } = dto;
+    if (isUndirected(dto.type) && personId > relatedPersonId) {
+      [personId, relatedPersonId] = [relatedPersonId, personId];
+    }
+    const candidate = {
+      personId,
+      relatedPersonId,
+      type: dto.type,
+      qualifier: dto.qualifier ?? null,
+      label: dto.label ?? null,
+    };
+
+    const error = validateRelation(await this.getGraph(membership.familyId), candidate);
+    if (error) {
+      throw new BadRequestException(error);
+    }
+
+    const existing = await this.familyRepository.getRelations(membership.familyId);
+    if (
+      existing.some(
+        (relation) =>
+          relation.personGroupId === personId &&
+          relation.relatedPersonGroupId === relatedPersonId &&
+          relation.type === dto.type,
+      )
+    ) {
+      throw new BadRequestException('That relation is already recorded');
+    }
+
+    const relation = await this.familyRepository.createRelation({
+      familyId: membership.familyId,
+      personGroupId: personId,
+      relatedPersonGroupId: relatedPersonId,
+      type: dto.type,
+      qualifier: candidate.qualifier,
+      label: candidate.label,
+      createdById: auth.user.id,
+    });
+    await this.recordHistory(
+      membership,
+      auth,
+      FamilyHistoryAction.RelationCreate,
+      relation.id,
+      null,
+      candidate,
+      'relation',
+    );
+    return this.mapRelation(relation);
+  }
+
+  async deleteRelation(auth: AuthDto, id: string): Promise<void> {
+    const membership = await requireFamilyRole(this.familyRepository, auth, CONTRIBUTOR_ROLES);
+    const relation = await this.familyRepository.deleteRelation(id, membership.familyId);
+    if (!relation) {
+      throw new BadRequestException('Relation not found');
+    }
+    await this.recordHistory(
+      membership,
+      auth,
+      FamilyHistoryAction.RelationDelete,
+      id,
+      this.mapRelation(relation) as unknown as Record<string, unknown>,
+      null,
+      'relation',
+    );
+  }
+
+  /** The people in a photo, with their age when it was taken and how they're related to the viewer. */
+  async getAssetPeople(auth: AuthDto, assetId: string): Promise<FamilyAssetPersonResponseDto[]> {
+    const membership = await requireFamilyRole(this.familyRepository, auth);
+    await this.requireFamilyAsset(membership, assetId);
+    const [rows, people, graph] = await Promise.all([
+      this.familyRepository.getAssetPeople(membership.familyId, assetId),
+      this.familyRepository.getFamilyPeople(membership.familyId),
+      this.getGraph(membership.familyId),
+    ]);
+    const me = people.find((person) => person.linkedUserId === auth.user.id)?.personGroupId;
+    return rows.map((row) => ({
+      faceId: row.faceId,
+      personId: row.personGroupId,
+      name: row.name,
+      age: ageOn(toDateString(row.birthDate), row.localDateTime),
+      relationToMe: me ? graph.relationship(me, row.personGroupId) : null,
+    }));
+  }
+
+  async getComments(auth: AuthDto, assetId: string): Promise<FamilyCommentResponseDto[]> {
+    const membership = await requireFamilyRole(this.familyRepository, auth);
+    await this.requireFamilyAsset(membership, assetId);
+    const comments = await this.familyRepository.getComments(membership.familyId, assetId);
+    return comments.map((comment) => ({
+      id: comment.id,
+      assetId: comment.assetId,
+      userId: comment.userId,
+      userName: comment.userName,
+      text: comment.text,
+      createdAt: comment.createdAt as unknown as Date,
+      canDelete: comment.userId === auth.user.id || membership.role === FamilyRole.Admin,
+    }));
+  }
+
+  async createComment(auth: AuthDto, assetId: string, dto: FamilyCommentCreateDto): Promise<FamilyCommentResponseDto> {
+    const membership = await requireFamilyRole(this.familyRepository, auth, CONTRIBUTOR_ROLES);
+    await this.requireFamilyAsset(membership, assetId);
+    const comment = await this.familyRepository.createComment({
+      familyId: membership.familyId,
+      assetId,
+      userId: auth.user.id,
+      text: dto.text,
+    });
+    return {
+      id: comment.id,
+      assetId,
+      userId: auth.user.id,
+      userName: auth.user.name,
+      text: comment.text,
+      createdAt: comment.createdAt as unknown as Date,
+      canDelete: true,
+    };
+  }
+
+  async deleteComment(auth: AuthDto, id: string): Promise<void> {
+    const membership = await requireFamilyRole(this.familyRepository, auth);
+    const comment = await this.familyRepository.getComment(id, membership.familyId);
+    if (!comment) {
+      throw new BadRequestException('Comment not found');
+    }
+    if (comment.userId !== auth.user.id && membership.role !== FamilyRole.Admin) {
+      throw new ForbiddenException('Only the author or a family admin can delete a comment');
+    }
+    await this.familyRepository.deleteComment(id);
+    await this.recordHistory(
+      membership,
+      auth,
+      FamilyHistoryAction.CommentDelete,
+      id,
+      { text: comment.text, assetId: comment.assetId, userId: comment.userId },
+      null,
+      'comment',
+    );
+  }
+
+  /** Brings shared people up to date: new people from face recognition, new members, a restore. */
+  async reconcile(familyId: string) {
+    await this.familyRepository.seedFamilyPeople(familyId);
+    await this.familyRepository.mirrorFamilyPeople(familyId);
+  }
+
+  @OnEvent({ name: 'AppBootstrap', workers: [ImmichWorker.Api] })
+  async onBootstrap() {
+    if (!isFamilyEnabled()) {
+      return;
+    }
+    const family = await this.familyRepository.getAnyFamily();
+    if (family) {
+      await this.reconcile(family.id);
+    }
+  }
+
+  /** Face recognition creates new people; share them with the family shortly after, once per burst. */
+  @OnEvent({ name: 'JobSuccess', workers: [ImmichWorker.Microservices] })
+  onJobSuccess({ job }: ArgOf<'JobSuccess'>) {
+    if (!isFamilyEnabled() || job.name !== JobName.FacialRecognition || this.reconcileTimer) {
+      return;
+    }
+    this.reconcileTimer = setTimeout(() => {
+      this.reconcileTimer = undefined;
+      void this.reconcileAll().catch((error) => this.logger.error(`Family people reconcile failed: ${error}`));
+    }, RECONCILE_DELAY_MS);
+  }
+
+  private async reconcileAll() {
+    const family = await this.familyRepository.getAnyFamily();
+    if (family) {
+      await this.reconcile(family.id);
+    }
+  }
+
+  private async checkLink(
+    membership: FamilyMembership,
+    auth: AuthDto,
+    person: Selectable<FamilyPersonTable>,
+    linkedUserId: string | null,
+  ) {
+    const isAdmin = membership.role === FamilyRole.Admin;
+    const touchesSomeoneElse =
+      (linkedUserId !== null && linkedUserId !== auth.user.id) ||
+      (person.linkedUserId !== null && person.linkedUserId !== auth.user.id);
+    if (touchesSomeoneElse && !isAdmin) {
+      throw new ForbiddenException('You can only link yourself; ask an admin to link someone else');
+    }
+    if (!linkedUserId) {
+      return;
+    }
+    const members = await this.familyRepository.getMemberIds(membership.familyId);
+    if (!members.includes(linkedUserId)) {
+      throw new BadRequestException('That user is not in the family');
+    }
+    const people = await this.familyRepository.getFamilyPeople(membership.familyId);
+    const other = people.find(
+      (item) => item.linkedUserId === linkedUserId && item.personGroupId !== person.personGroupId,
+    );
+    if (other) {
+      throw new BadRequestException(`That account is already linked to ${other.name || 'another person'}`);
+    }
+  }
+
+  private async requirePerson(membership: FamilyMembership, id: string) {
+    const person = await this.familyRepository.getFamilyPerson(membership.familyId, id);
+    if (!person) {
+      throw new BadRequestException('Person not found in the family');
+    }
+    return person;
+  }
+
+  private async requireFamilyAsset(membership: FamilyMembership, assetId: string) {
+    const ids = await this.familyRepository.getFamilyAssetIds(membership.familyId, [assetId]);
+    if (!ids.has(assetId)) {
+      throw new BadRequestException('Photo not found in the family library');
+    }
+  }
+
+  private async getGraph(familyId: string): Promise<FamilyGraph> {
+    const [people, relations] = await Promise.all([
+      this.familyRepository.getFamilyPeople(familyId),
+      this.familyRepository.getRelations(familyId),
+    ]);
+    return new FamilyGraph(
+      people.map((person) => ({ id: person.personGroupId, gender: (person.gender as Gender) ?? null })),
+      relations.map((relation) => this.toStored(relation)),
+    );
+  }
+
+  private toStored(relation: Selectable<FamilyRelationTable>): StoredRelation {
+    return {
+      id: relation.id,
+      personId: relation.personGroupId,
+      relatedPersonId: relation.relatedPersonGroupId,
+      type: relation.type as RelationType,
+      qualifier: relation.qualifier as RelationQualifier | null,
+      label: relation.label,
+    };
+  }
+
+  private mapRelation(relation: Selectable<FamilyRelationTable>): FamilyRelationResponseDto {
+    const stored = this.toStored(relation);
+    return {
+      id: stored.id,
+      personId: stored.personId,
+      relatedPersonId: stored.relatedPersonId,
+      type: stored.type,
+      qualifier: stored.qualifier,
+      label: stored.label,
+    };
+  }
+
+  private mapPerson(person: PersonRow, graph: FamilyGraph, me: string | undefined): FamilyPersonResponseDto {
+    const relationToMe: Relationship | null = me ? graph.relationship(me, person.personGroupId) : null;
+    return {
+      id: person.personGroupId,
+      name: person.name,
+      birthDate: toDateString(person.birthDate),
+      deathDate: toDateString(person.deathDate),
+      gender: (person.gender as 'female' | 'male' | null) ?? null,
+      bio: person.bio,
+      linkedUserId: person.linkedUserId,
+      faceCount: Number(person.faceCount ?? 0),
+      relationToMe,
+    };
+  }
+
+  private async recordHistory(
+    membership: FamilyMembership,
+    auth: AuthDto,
+    action: FamilyHistoryAction,
+    entityId: string,
+    before: Record<string, unknown> | null,
+    after: Record<string, unknown> | null,
+    entityType = 'person',
+  ) {
+    await this.familyRepository.addHistory({
+      familyId: membership.familyId,
+      userId: auth.user.id,
+      action,
+      entityType,
+      entityId,
+      before,
+      after,
+    });
+  }
+}
