@@ -43,7 +43,7 @@ take() { # take <ref> <file>
   if exists_in "$1" "$2"; then git checkout -q "$1" -- "$2"; else git rm -q -f --ignore-unmatch -- "$2"; fi
 }
 
-files=$( { git diff --name-only "$TARGET"; git diff --name-only --diff-filter=U; git diff --name-only "$BASE" "$FORK"; } | sort -u )
+files=$( { git diff --name-only "$TARGET"; git diff --name-only --diff-filter=U; git diff --name-only "$BASE" "$FORK" --; } | sort -u )
 for file in $files; do
   if [ "$file" = "$ORDER" ]; then
     { git show "$TARGET:$ORDER"; git show "$FORK:$ORDER"; } | sort -u -t- -k1,1n > "$ORDER"
