@@ -107,7 +107,7 @@ export const Route = {
   // sharing
   sharing: () => '/sharing',
   // family fork
-  family: () => '/family',
+  family: () => '/family/settings',
   familyPeople: () => '/family/people',
   familyPerson: ({ id }: { id: string }) => `/family/people/${id}`,
   familyTree: (params?: { focus?: string }) => '/family/tree' + asQueryString(params),

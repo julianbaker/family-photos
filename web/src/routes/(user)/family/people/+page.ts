@@ -6,5 +6,5 @@ import type { PageLoad } from './$types';
 export const load = (async ({ url }) => {
   await authenticate(url);
   const people = await getFamilyPeople().catch(() => null);
-  return { people, meta: { title: 'Family people' } };
+  return { people, meta: { title: 'People' } };
 }) satisfies PageLoad;

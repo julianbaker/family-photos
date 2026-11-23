@@ -1,12 +1,8 @@
-import { authenticate } from '#lib/utils/auth.ts';
-import { getMyFamily, type FamilyResponseDto } from '@immich/sdk';
+import { Route } from '#lib/route.ts';
+import { redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 
-// family fork: members, invite links and invite requests
-export const load = (async ({ url }) => {
-  await authenticate(url);
-
-  const family: FamilyResponseDto | null = await getMyFamily().catch(() => null);
-
-  return { family, meta: { title: family?.name ?? 'Family' } };
+// family fork: /family is the family's people; members, invites and requests live in /family/settings
+export const load = (() => {
+  redirect(307, Route.familyPeople());
 }) satisfies PageLoad;

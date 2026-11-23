@@ -1,6 +1,8 @@
 <script lang="ts">
   // family fork: one person's details, bio, relations and relatives
   import UserPageLayout from '#lib/components/layouts/UserPageLayout.svelte';
+  import AddRelative, { type RelativeKind } from '#lib/family/AddRelative.svelte';
+  import FamilyFace from '#lib/family/FamilyFace.svelte';
   import { renderBio } from '#lib/family/bio.ts';
   import { familyState } from '#lib/family/family-state.svelte.ts';
   import { BROWSE_KEYS, RELATIVE_GROUPS, formatDate, lifespan } from '#lib/family/format.ts';
@@ -13,7 +15,6 @@
     FamilyRelationType,
     createFamilyRelation,
     deleteFamilyRelation,
-    getPeopleThumbnailPath,
     updateFamilyPerson,
     type FamilyRelationResponseDto,
   } from '@immich/sdk';
@@ -86,6 +87,15 @@
       handleError(error, 'Could not update');
     }
   };
+
+  // quick add, like the tree: parent, partner, sibling, child
+  let quickAdd = $state<RelativeKind | null>(null);
+  const quickButtons: Array<{ kind: RelativeKind; label: string }> = [
+    { kind: 'parent', label: 'Parent' },
+    { kind: 'spouse', label: 'Partner' },
+    { kind: 'sibling', label: 'Sibling' },
+    { kind: 'child', label: 'Child' },
+  ];
 
   // relations
   type Choice = 'parent' | 'child' | 'spouse' | 'sibling' | 'godparent' | 'godchild' | 'friend' | 'custom';
@@ -226,15 +236,13 @@
 <UserPageLayout title={data.meta.title}>
   <div class="mx-auto flex max-w-3xl flex-col gap-8 pb-16">
     <header class="flex flex-wrap items-center gap-6">
-      {#if person.faceCount > 0}
-        <img src={getPeopleThumbnailPath(person.id)} alt="" class="size-28 rounded-full object-cover" />
-      {:else}
-        <div
-          class="flex size-28 items-center justify-center rounded-full bg-gray-200 text-4xl font-semibold text-gray-500 dark:bg-gray-700 dark:text-gray-300"
-        >
-          {(person.name || '?').slice(0, 1)}
-        </div>
-      {/if}
+      <FamilyFace
+        id={person.id}
+        name={person.name}
+        hasPhotos={person.faceCount > 0}
+        class="size-28"
+        textClass="text-4xl"
+      />
       <div class="flex min-w-0 flex-1 flex-col gap-1">
         <Heading size="large">{person.name || 'Unnamed person'}</Heading>
         {#if person.relationToMe && person.relationToMe.key !== 'self'}
@@ -300,9 +308,35 @@
       </section>
     {/if}
 
-    {#if groups.length > 0}
-      <section>
-        <Heading size="small" class="mb-4">Family</Heading>
+    <section>
+      <Heading size="small" class="mb-4">Family</Heading>
+      {#if groups.length === 0}
+        <Text color="muted" class="mb-3">No relatives recorded yet.</Text>
+      {/if}
+      {#if familyState.canContribute}
+        <div class="mb-4 flex flex-wrap gap-2">
+          {#each quickButtons as button (button.kind)}
+            <Button size="small" variant="outline" shape="round" onclick={() => (quickAdd = button.kind)}>
+              + {button.label}
+            </Button>
+          {/each}
+        </div>
+        {#if quickAdd}
+          <div class="mb-4">
+            <AddRelative
+              {person}
+              people={data.people}
+              kind={quickAdd}
+              onCancel={() => (quickAdd = null)}
+              onDone={async () => {
+                quickAdd = null;
+                await invalidateAll();
+              }}
+            />
+          </div>
+        {/if}
+      {/if}
+      {#if groups.length > 0}
         <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
           {#each groups as group (group.title)}
             <div>
@@ -321,8 +355,8 @@
             </div>
           {/each}
         </div>
-      </section>
-    {/if}
+      {/if}
+    </section>
 
     {#if browseLinks.length > 0}
       <section class="flex flex-wrap gap-2">
@@ -338,7 +372,7 @@
     {/if}
 
     <section>
-      <Heading size="small" class="mb-4">Recorded relations</Heading>
+      <Heading size="small" class="mb-4">All recorded relations</Heading>
       {#if ownRelations.length === 0}
         <Text color="muted">None yet.</Text>
       {:else}
@@ -358,7 +392,8 @@
 
       {#if familyState.canContribute}
         <form onsubmit={addRelation} class="mt-4 flex flex-col gap-3 rounded-xl border p-4 dark:border-gray-700">
-          <Text fontWeight="semi-bold">Add a relation</Text>
+          <Text fontWeight="semi-bold">Add another kind of relation</Text>
+          <Text size="small" color="muted">Godparents, friends, step and adopted family, or anything else.</Text>
           {#if others.length === 0}
             <Alert color="secondary" title="Name some more people first." />
           {:else}

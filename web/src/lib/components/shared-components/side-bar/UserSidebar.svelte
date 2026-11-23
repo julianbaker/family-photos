@@ -20,6 +20,7 @@
     mdiArchiveArrowDownOutline,
     mdiCards,
     mdiCardsOutline,
+    mdiFamilyTree,
     mdiFolderOutline,
     mdiHeart,
     mdiHeartOutline,
@@ -63,8 +64,14 @@
     <NavbarItem title={$t('memories')} href={Route.memories()} icon={mdiCardsOutline} activeIcon={mdiCards} />
   {/if}
 
-  {#if authManager.preferences.people.enabled && authManager.preferences.people.sidebarWeb}
-    <NavbarItem title={$t('people')} href={Route.people()} icon={mdiAccountOutline} activeIcon={mdiAccount} />
+  <!-- family fork: in a family, People is the family's people (faces, bios, relatives), always shown -->
+  {#if familyState.inFamily || (authManager.preferences.people.enabled && authManager.preferences.people.sidebarWeb)}
+    <NavbarItem
+      title={$t('people')}
+      href={familyState.inFamily ? Route.familyPeople() : Route.people()}
+      icon={mdiAccountOutline}
+      activeIcon={mdiAccount}
+    />
   {/if}
 
   {#if authManager.preferences.sharedLinks.enabled && authManager.preferences.sharedLinks.sidebarWeb}
@@ -73,7 +80,15 @@
 
   <!-- family fork -->
   {#if familyState.inFamily}
-    <NavbarItem title="Family" href={Route.family()} icon={mdiAccountGroupOutline} activeIcon={mdiAccountGroup} />
+    <NavbarItem title="Family Tree" href={Route.familyTree()} icon={mdiFamilyTree} />
+    {#if familyState.isAdmin}
+      <NavbarItem
+        title="Family Settings"
+        href={Route.family()}
+        icon={mdiAccountGroupOutline}
+        activeIcon={mdiAccountGroup}
+      />
+    {/if}
   {/if}
 
   <NavbarItem

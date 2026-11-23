@@ -6,6 +6,7 @@ class FamilyState {
   role = $state<FamilyRole | null>(null);
   /** Members and admins can edit any family photo and the family's people; viewers only look. */
   canContribute = $derived(this.role === FamilyRole.Admin || this.role === FamilyRole.Member);
+  isAdmin = $derived(this.role === FamilyRole.Admin);
   #loading: Promise<void> | null = null;
 
   load() {
