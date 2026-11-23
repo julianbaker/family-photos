@@ -37,6 +37,7 @@ import {
   Permission,
   QueueName,
 } from 'src/enum.js';
+import { requireOwnerForPersonalFields } from 'src/family/family-owner-fields.js';
 import { BaseService } from 'src/services/base.service.js';
 import type { JobItem, JobOf } from 'src/types.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
@@ -85,6 +86,8 @@ export class AssetService extends BaseService {
 
   async update(auth: AuthDto, id: string, dto: UpdateAssetDto): Promise<AssetResponseDto> {
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id] });
+    // family fork: favourites, archive and ratings stay with the owner
+    await requireOwnerForPersonalFields(this.accessRepository, auth, [id], dto);
 
     const { description, dateTimeOriginal, latitude, longitude, rating, ...rest } = dto;
     const repos = { asset: this.assetRepository, event: this.eventRepository };
@@ -138,6 +141,13 @@ export class AssetService extends BaseService {
       timeZone,
     } = dto;
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids });
+    // family fork: favourites, archive and ratings stay with the owner
+    await requireOwnerForPersonalFields(this.accessRepository, auth, ids, {
+      isFavorite,
+      visibility,
+      rating,
+      duplicateId,
+    });
 
     const assetDto = omitBy({ isFavorite, visibility, duplicateId }, isUndefined);
     const exifDto = omitBy(

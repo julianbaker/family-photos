@@ -25,3 +25,4 @@ Every upstream file the fork changes, and why. Check these first when merging an
 - Keep every `// family fork` line. In positional lists (`BASE_SERVICE_DEPENDENCIES`, the `BaseService` constructor, `BaseService.create`, `test/utils.ts`) the family entries stay **last**.
 - After merging, run `pnpm check`, the unit tests, `pnpm test:medium --run test/medium/specs/family`, and regenerate the OpenAPI spec and `server/src/queries`.
 - `migrations:generate` prints spurious `DROP TYPE`/`CREATE TYPE` pairs for upstream enums (it compares enum values in a different order). Delete those lines from generated fork migrations, and write `down` with the overrides first and the tables last.
+| `server/src/services/asset.service.ts` | `update` and `updateAll` call `requireOwnerForPersonalFields` | favourites, archive/hidden/locked, ratings, Live Photo links and duplicate choices stay with the owner |
