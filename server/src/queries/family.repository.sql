@@ -555,6 +555,16 @@ where
       and "covered"."faceAssetId" is not null
   )
 
+-- FamilyRepository.getFaceInAsset
+select
+  "asset_face"."id"
+from
+  "asset_face"
+where
+  "asset_face"."personGroupId" = $1
+  and "asset_face"."assetId" = $2
+  and "asset_face"."deletedAt" is null
+
 -- FamilyRepository.getAssetsForPetScan
 select
   "asset"."id",

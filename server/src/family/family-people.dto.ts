@@ -36,6 +36,7 @@ const FamilyPersonResponseSchema = z
     linkedUserId: z.uuidv4().nullable().describe('The member account this person is'),
     faceCount: z.number().int().describe('Photos this person is recognised in'),
     kind: KindSchema,
+    updatedAt: z.string().describe('Changes whenever the person or their picture changes (use it to refresh a cached picture)'),
     relationToMe: RelationshipSchema.nullable().describe('How this person is related to the signed-in member'),
   })
   .meta({ id: 'FamilyPersonResponseDto' });
@@ -84,6 +85,10 @@ const FamilyRelativeResponseSchema = z
   .object({ personId: z.uuidv4(), name: z.string(), key: z.string(), label: z.string() })
   .meta({ id: 'FamilyRelativeResponseDto' });
 
+const FamilyPersonCoverSchema = z
+  .object({ assetId: z.uuidv4().describe('A photo of this person; their face in it becomes their picture') })
+  .meta({ id: 'FamilyPersonCoverDto' });
+
 const FamilyRelativesQuerySchema = z
   .object({
     keys: z.string().optional().describe('Comma-separated relation keys to keep, e.g. child,grandchild'),
@@ -119,6 +124,7 @@ const FamilyCommentResponseSchema = z
 export class FamilyPersonResponseDto extends createZodDto(FamilyPersonResponseSchema) {}
 export class FamilyPersonCreateDto extends createZodDto(FamilyPersonCreateSchema) {}
 export class FamilyPersonUpdateDto extends createZodDto(FamilyPersonUpdateSchema) {}
+export class FamilyPersonCoverDto extends createZodDto(FamilyPersonCoverSchema) {}
 export class FamilyRelationCreateDto extends createZodDto(FamilyRelationCreateSchema) {}
 export class FamilyRelationResponseDto extends createZodDto(FamilyRelationResponseSchema) {}
 export class FamilyRelativeResponseDto extends createZodDto(FamilyRelativeResponseSchema) {}

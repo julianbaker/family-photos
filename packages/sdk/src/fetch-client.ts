@@ -1953,6 +1953,8 @@ export type FamilyPersonResponseDto = {
     name: string;
     /** How this person is related to the signed-in member */
     relationToMe: (FamilyRelationshipDto) | null;
+    /** Changes whenever the person or their picture changes (use it to refresh a cached picture) */
+    updatedAt: string;
 };
 export type FamilyPersonCreateDto = {
     /** Paragraphs, **bold**, *italic* and [links](https://...) */
@@ -1979,6 +1981,10 @@ export type FamilyPersonUpdateDto = {
     /** Link to a member account ("this is me") */
     linkedUserId?: string | null;
     name?: string;
+};
+export type FamilyPersonCoverDto = {
+    /** A photo of this person; their face in it becomes their picture */
+    assetId: string;
 };
 export type FamilyRelativeResponseDto = {
     key: string;
@@ -6197,6 +6203,22 @@ export function updateFamilyPerson({ id, familyPersonUpdateDto }: {
         ...opts,
         method: "PUT",
         body: familyPersonUpdateDto
+    })));
+}
+/**
+ * Choose a family person's key photo
+ */
+export function setFamilyPersonCover({ id, familyPersonCoverDto }: {
+    id: string;
+    familyPersonCoverDto: FamilyPersonCoverDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: FamilyPersonResponseDto;
+    }>(`/family/people/${encodeURIComponent(id)}/cover`, oazapfts.json({
+        ...opts,
+        method: "PUT",
+        body: familyPersonCoverDto
     })));
 }
 /**

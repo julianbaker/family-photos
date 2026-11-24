@@ -325,6 +325,38 @@ describe(FamilyPeopleService.name, () => {
     });
   });
 
+  describe('key photo', () => {
+    it('sets the same picture for every member, from a photo the person is in', async () => {
+      const setupResult = setup();
+      const { ctx, sut } = setupResult;
+      const { admin, member, memberAuth, amyId } = await newFamily(setupResult);
+      const { asset: first } = await ctx.newAsset({ ownerId: admin.id });
+      const { asset: second } = await ctx.newAsset({ ownerId: member.id });
+      const { asset: elsewhere } = await ctx.newAsset({ ownerId: admin.id });
+      await ctx.newAssetFace({ assetId: first.id, personGroupId: amyId });
+      const { assetFace: chosen } = await ctx.newAssetFace({ assetId: second.id, personGroupId: amyId });
+      const before = await sut.get(memberAuth, amyId);
+
+      const after = await sut.setCover(memberAuth, amyId, { assetId: second.id });
+
+      const covers = await ctx.database
+        .selectFrom('person')
+        .select(['ownerId', 'faceAssetId'])
+        .where('personGroupId', '=', amyId)
+        .execute();
+      expect(covers.length).toBeGreaterThanOrEqual(2);
+      expect(covers.every((cover) => cover.faceAssetId === chosen.id)).toBe(true);
+      expect(ctx.getMock(JobRepository).queue).toHaveBeenCalledWith({
+        name: JobName.PersonGenerateThumbnail,
+        data: { ownerId: member.id, personGroupId: amyId },
+      });
+      // the apps see a new version and drop their cached picture
+      expect(after.updatedAt).not.toBe(before.updatedAt);
+      // a photo she isn't in can't be her picture
+      await expect(sut.setCover(memberAuth, amyId, { assetId: elsewhere.id })).rejects.toThrow('not recognised');
+    });
+  });
+
   describe('merging', () => {
     it('merges every member’s copy, and keeps details, relations and faces', async () => {
       const setupResult = setup();

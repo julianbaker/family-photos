@@ -8,6 +8,7 @@ import {
   FamilyAssetPersonResponseDto,
   FamilyCommentCreateDto,
   FamilyCommentResponseDto,
+  FamilyPersonCoverDto,
   FamilyPersonCreateDto,
   FamilyPersonResponseDto,
   FamilyPersonUpdateDto,
@@ -304,6 +305,24 @@ export class FamilyPeopleService extends BaseService {
 
     await this.familyRepository.mirrorFamilyPeople(membership.familyId, targetId);
     await this.repairCovers(membership.familyId, targetId);
+  }
+
+  /** The family's choice of someone's picture: their face in one photo, the same for every member. */
+  async setCover(auth: AuthDto, id: string, dto: FamilyPersonCoverDto): Promise<FamilyPersonResponseDto> {
+    const membership = await requireFamilyRole(this.familyRepository, auth, CONTRIBUTOR_ROLES);
+    await this.requirePerson(membership, id);
+    const face = await this.familyRepository.getFaceInAsset(id, dto.assetId);
+    if (!face) {
+      throw new BadRequestException('They are not recognised in that photo');
+    }
+    const owners = await this.familyRepository.setGroupCover(id, face.id);
+    // a new updatedAt tells the apps their cached picture is out of date
+    await this.familyRepository.updateFamilyPerson(id, { updatedById: auth.user.id });
+    for (const { ownerId } of owners) {
+      await this.jobRepository.queue({ name: JobName.PersonGenerateThumbnail, data: { ownerId, personGroupId: id } });
+    }
+    await this.recordHistory(membership, auth, FamilyHistoryAction.PersonUpdate, id, null, { cover: dto.assetId });
+    return this.get(auth, id);
   }
 
   /**
@@ -624,6 +643,7 @@ export class FamilyPeopleService extends BaseService {
       faceCount: Number(person.faceCount ?? 0),
       // set by hand, or a pet because pet recognition found its photos
       kind: person.kind === 'pet' || person.kind === 'person' ? person.kind : person.hasPetFaces ? 'pet' : 'person',
+      updatedAt: new Date(person.updatedAt).toISOString(),
       relationToMe,
     };
   }

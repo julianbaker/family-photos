@@ -758,6 +758,28 @@ export class FamilyRepository {
       .execute();
   }
 
+  /** The person's face in a photo, if they're in it. */
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  getFaceInAsset(personGroupId: string, assetId: string) {
+    return this.db
+      .selectFrom('asset_face')
+      .select('asset_face.id')
+      .where('asset_face.personGroupId', '=', personGroupId)
+      .where('asset_face.assetId', '=', assetId)
+      .where('asset_face.deletedAt', 'is', null)
+      .executeTakeFirst();
+  }
+
+  /** Every member's copy of a person gets the same cover face; returns whose copies changed. */
+  setGroupCover(personGroupId: string, faceId: string) {
+    return this.db
+      .updateTable('person')
+      .set({ faceAssetId: faceId })
+      .where('person.personGroupId', '=', personGroupId)
+      .returning('person.ownerId')
+      .execute();
+  }
+
   setPersonCover(ownerId: string, personGroupId: string, faceId: string) {
     return this.db
       .updateTable('person')

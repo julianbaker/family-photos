@@ -7,6 +7,7 @@ import {
   FamilyAssetPersonResponseDto,
   FamilyCommentCreateDto,
   FamilyCommentResponseDto,
+  FamilyPersonCoverDto,
   FamilyPersonCreateDto,
   FamilyPersonResponseDto,
   FamilyPersonUpdateDto,
@@ -72,6 +73,21 @@ export class FamilyPeopleController {
     @Body() dto: FamilyPersonUpdateDto,
   ): Promise<FamilyPersonResponseDto> {
     return this.service.update(auth, id, dto);
+  }
+
+  @Put('people/:id/cover')
+  @Authenticated()
+  @Endpoint({
+    summary: "Choose a family person's key photo",
+    description: 'Their face in this photo becomes their picture, for everyone in the family.',
+    history: added(),
+  })
+  setFamilyPersonCover(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Body() dto: FamilyPersonCoverDto,
+  ): Promise<FamilyPersonResponseDto> {
+    return this.service.setCover(auth, id, dto);
   }
 
   @Get('people/:id/relatives')

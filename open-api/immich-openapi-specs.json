@@ -8426,6 +8426,67 @@
         ]
       }
     },
+    "/family/people/{id}/cover": {
+      "put": {
+        "description": "Their face in this photo becomes their picture, for everyone in the family.",
+        "operationId": "setFamilyPersonCover",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyPersonCoverDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyPersonResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Choose a family person's key photo",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
     "/family/people/{id}/relatives": {
       "get": {
         "description": "Everyone related to this person and how, e.g. their children or grandparents.",
@@ -24991,6 +25052,20 @@
         ],
         "type": "object"
       },
+      "FamilyPersonCoverDto": {
+        "properties": {
+          "assetId": {
+            "description": "A photo of this person; their face in it becomes their picture",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assetId"
+        ],
+        "type": "object"
+      },
       "FamilyPersonCreateDto": {
         "properties": {
           "bio": {
@@ -25104,6 +25179,10 @@
             ],
             "description": "How this person is related to the signed-in member",
             "nullable": true
+          },
+          "updatedAt": {
+            "description": "Changes whenever the person or their picture changes (use it to refresh a cached picture)",
+            "type": "string"
           }
         },
         "required": [
@@ -25116,7 +25195,8 @@
           "kind",
           "linkedUserId",
           "name",
-          "relationToMe"
+          "relationToMe",
+          "updatedAt"
         ],
         "type": "object"
       },
