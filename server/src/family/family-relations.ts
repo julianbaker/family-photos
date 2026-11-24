@@ -65,12 +65,17 @@ const WORDS: Record<string, [female: string, male: string, neutral: string]> = {
   godchild: ['goddaughter', 'godson', 'godchild'],
 };
 
-/** Two people with the same relationship, in one word: "grandparents", "aunt and uncle". */
+/** Two people with the same relationship, in one phrase: "grandparents", "children", "aunt and uncle". */
+const PLURALS: Record<string, string> = {
+  parent: 'parents',
+  grandparent: 'grandparents',
+  child: 'children',
+  grandchild: 'grandchildren',
+};
 const plural = (key: string, labels: string[]) => {
-  if (key.endsWith('grandparent') || key === 'parent' || key.endsWith('grandchild') || key === 'child') {
-    return `${greats(key.split('great-').length - 1)}${word(key.replace(/^(great-)+/, ''), null)}s`;
-  }
-  return [...new Set(labels)].join(' and ');
+  const base = key.replace(/^(great-)+/, '');
+  const phrase = PLURALS[base];
+  return phrase ? `${greats(key.split('great-').length - 1)}${phrase}` : [...new Set(labels)].join(' and ');
 };
 
 const word = (key: string, gender: Gender) => {
@@ -457,6 +462,10 @@ export class FamilyGraph {
     return result;
   }
 
+  ownerCount(pet: string): number {
+    return this.petOwners.get(pet)?.size ?? 0;
+  }
+
   isPet(id: string): boolean {
     return this.people.get(id)?.pet === true;
   }
@@ -489,9 +498,11 @@ export class FamilyGraph {
     for (const owner of owners) {
       const relationship = this.relationship(owner, to);
       if (relationship && relationship.key !== 'self') {
-        return relationship.key === 'pet'
-          ? { key: 'pet', label: "owner's pet" }
-          : { key: 'owner-relative', label: `owner's ${relationship.label}` };
+        // another pet: "owner's pet" when it's the owner's own, else through the owner ("owner's parents' pet")
+        if (relationship.key === 'pet') {
+          return { key: 'pet', label: relationship.label === 'pet' ? "owner's pet" : `owner's ${relationship.label}` };
+        }
+        return { key: 'owner-relative', label: `owner's ${relationship.label}` };
       }
     }
     return null;
@@ -540,6 +551,19 @@ export const validateRelation = (
   };
   if (!allowed[type].includes(qualifier)) {
     return `"${qualifier}" doesn't apply to a ${type} relation`;
+  }
+
+  // a pet's people are its owners: at most two, like parents, so the tree can draw them
+  if (graph.isPet(relatedPersonId) || graph.isPet(personId)) {
+    if (type === RelationType.Parent && graph.isPet(relatedPersonId)) {
+      if (graph.isPet(personId)) {
+        return 'A pet cannot own a pet';
+      }
+      if (graph.ownerCount(relatedPersonId) >= 2) {
+        return 'This pet already has two owners';
+      }
+    }
+    return null;
   }
 
   if (type === RelationType.Parent && qualifier !== RelationQualifier.Step) {

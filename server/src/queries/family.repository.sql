@@ -340,15 +340,34 @@ select
       and "asset_face"."deletedAt" is null
       and "asset_face"."isVisible" = $1
   ) as "faceCount",
-  exists (
+  (
+    exists (
+      select
+      from
+        "asset_face"
+      where
+        "asset_face"."personGroupId" = "family_person"."personGroupId"
+        and "asset_face"."sourceType" = 'pet'
+        and "asset_face"."deletedAt" is null
+    )
+    and not exists (
+      select
+      from
+        "asset_face"
+      where
+        "asset_face"."personGroupId" = "family_person"."personGroupId"
+        and "asset_face"."sourceType" != 'pet'
+        and "asset_face"."deletedAt" is null
+    )
+  ) as "hasPetFaces",
+  (
     select
+      max("person"."updatedAt") as "pictureAt"
     from
-      "asset_face"
+      "person"
     where
-      "asset_face"."personGroupId" = "family_person"."personGroupId"
-      and "asset_face"."sourceType" = 'pet'
-      and "asset_face"."deletedAt" is null
-  ) as "hasPetFaces"
+      "person"."personGroupId" = "family_person"."personGroupId"
+  ) as "pictureAt"
 from
   "family_person"
 where
@@ -528,24 +547,26 @@ from
     from
       "asset_face"
       inner join "asset" on "asset"."id" = "asset_face"."assetId"
+      inner join "family_member" on "family_member"."userId" = "asset"."ownerId"
+      and "family_member"."familyId" = $1
     where
       "asset_face"."personGroupId" = "person"."personGroupId"
       and "asset_face"."deletedAt" is null
-      and "asset_face"."isVisible" = $1
+      and "asset_face"."isVisible" = $2
       and "asset"."deletedAt" is null
-      and "asset"."visibility" != 'hidden'
+      and "asset"."visibility" in ('timeline', 'archive')
     order by
       (
         "asset_face"."boundingBoxX2" - "asset_face"."boundingBoxX1"
       ) * (
         "asset_face"."boundingBoxY2" - "asset_face"."boundingBoxY1"
-      ) desc
+      ) desc,
+      "asset_face"."id"
     limit
-      $2
+      $3
   ) as "cover" on true
 where
-  "family_person"."familyId" = $3
-  and "person"."faceAssetId" is null
+  "family_person"."familyId" = $4
   and not exists (
     select
     from
@@ -553,9 +574,25 @@ where
     where
       "covered"."personGroupId" = "person"."personGroupId"
       and "covered"."faceAssetId" is not null
+      and exists (
+        select
+          1
+        from
+          "asset_face" sf
+          join "asset" sa on sa."id" = sf."assetId"
+          join "family_member" sm on sm."userId" = sa."ownerId"
+          and sm."familyId" = $5
+        where
+          sf."id" = "covered"."faceAssetId"
+          and sf."personGroupId" = "covered"."personGroupId"
+          and sf."deletedAt" is null
+          and sf."isVisible" is true
+          and sa."deletedAt" is null
+          and sa."visibility" in ('timeline', 'archive')
+      )
   )
 
--- FamilyRepository.getFaceInAsset
+-- FamilyRepository.getShareableFaceInAsset
 select
   "asset_face"."id"
 from
@@ -563,7 +600,31 @@ from
 where
   "asset_face"."personGroupId" = $1
   and "asset_face"."assetId" = $2
-  and "asset_face"."deletedAt" is null
+  and exists (
+    select
+      1
+    from
+      "asset_face" sf
+      join "asset" sa on sa."id" = sf."assetId"
+      join "family_member" sm on sm."userId" = sa."ownerId"
+      and sm."familyId" = $3
+    where
+      sf."id" = "asset_face"."id"
+      and sf."personGroupId" = "asset_face"."personGroupId"
+      and sf."deletedAt" is null
+      and sf."isVisible" is true
+      and sa."deletedAt" is null
+      and sa."visibility" in ('timeline', 'archive')
+  )
+order by
+  (
+    "asset_face"."boundingBoxX2" - "asset_face"."boundingBoxX1"
+  ) * (
+    "asset_face"."boundingBoxY2" - "asset_face"."boundingBoxY1"
+  ) desc,
+  "asset_face"."id"
+limit
+  $4
 
 -- FamilyRepository.getAssetsForPetScan
 select
@@ -589,7 +650,7 @@ from
   ) as "preview" on true
 where
   "asset"."deletedAt" is null
-  and "asset"."visibility" != 'hidden'
+  and "asset"."visibility" in ('timeline', 'archive')
   and not exists (
     select
     from
@@ -628,7 +689,7 @@ from
 where
   "asset"."id" = $3
   and "asset"."deletedAt" is null
-  and "asset"."visibility" != 'hidden'
+  and "asset"."visibility" in ('timeline', 'archive')
 
 -- FamilyRepository.getPetFaces
 select

@@ -179,3 +179,19 @@ describe('family tree layout', () => {
     expect(neighbour(layout, 'Carl', 'left')).toBe('Dora');
   });
 });
+
+describe('pets', () => {
+  it('gives a pet no parent, partner or child slots, and no lines to empty slots', () => {
+    const graph = buildGraph(people(['Ann', 'female'], ['Rex']), [parent('Ann', 'Rex')]);
+    const isPet = (id: string) => id === 'Rex';
+
+    const layout = layoutTree(graph, 'Rex', { isPet });
+
+    // the owner, a person, may still get her own parent slots; the pet gets none
+    expect(slots(layout).filter((slot) => slot.endsWith(':Rex'))).toEqual([]);
+    expect(layout.tiles.some((t) => t.kind === 'add' && t.add === 'partner')).toBe(false);
+    expect(layout.lines.some((line) => line.key === 'add-child')).toBe(false);
+    // the owner stays straight above
+    expect(tile(layout, 'Ann').x).toBe(tile(layout, 'Rex').x);
+  });
+});

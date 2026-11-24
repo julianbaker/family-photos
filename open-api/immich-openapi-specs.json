@@ -8548,6 +8548,65 @@
             "state": "Added"
           }
         ]
+      },
+      "post": {
+        "description": "A father, mother, parent, partner, child, sibling, pet or (for a pet) owner: someone in the family or a new person, checked against the family rules and recorded in one go.",
+        "operationId": "addFamilyRelative",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyRelativeCreateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyRelativeCreatedDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Add a relative",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
       }
     },
     "/family/relations": {
@@ -25374,6 +25433,71 @@
           "label"
         ],
         "type": "object"
+      },
+      "FamilyRelativeCreateDto": {
+        "properties": {
+          "alsoWith": {
+            "description": "Father/mother/parent: also the partner of this other parent. Child/pet: also the child or pet of this partner",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "existingId": {
+            "description": "Someone already in the family",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FamilyRelativeKind"
+          },
+          "newName": {
+            "description": "Or a new person (a pet for kind \"pet\")",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "FamilyRelativeCreatedDto": {
+        "properties": {
+          "personId": {
+            "description": "The relative",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "relations": {
+            "description": "The relations recorded",
+            "items": {
+              "$ref": "#/components/schemas/FamilyRelationResponseDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "personId",
+          "relations"
+        ],
+        "type": "object"
+      },
+      "FamilyRelativeKind": {
+        "description": "How the relative is related to the person: their father, partner, pet; or, for a pet, its owner",
+        "enum": [
+          "father",
+          "mother",
+          "parent",
+          "partner",
+          "child",
+          "sibling",
+          "pet",
+          "owner"
+        ],
+        "type": "string"
       },
       "FamilyRelativeResponseDto": {
         "properties": {

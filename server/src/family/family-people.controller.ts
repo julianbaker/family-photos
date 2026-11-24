@@ -13,6 +13,8 @@ import {
   FamilyPersonUpdateDto,
   FamilyRelationCreateDto,
   FamilyRelationResponseDto,
+  FamilyRelativeCreateDto,
+  FamilyRelativeCreatedDto,
   FamilyRelativeResponseDto,
   FamilyRelativesQueryDto,
 } from 'src/family/family-people.dto.js';
@@ -73,6 +75,22 @@ export class FamilyPeopleController {
     @Body() dto: FamilyPersonUpdateDto,
   ): Promise<FamilyPersonResponseDto> {
     return this.service.update(auth, id, dto);
+  }
+
+  @Post('people/:id/relatives')
+  @Authenticated()
+  @Endpoint({
+    summary: 'Add a relative',
+    description:
+      'A father, mother, parent, partner, child, sibling, pet or (for a pet) owner: someone in the family or a new person, checked against the family rules and recorded in one go.',
+    history: added(),
+  })
+  addFamilyRelative(
+    @Auth() auth: AuthDto,
+    @Param() { id }: UUIDParamDto,
+    @Body() dto: FamilyRelativeCreateDto,
+  ): Promise<FamilyRelativeCreatedDto> {
+    return this.service.addRelative(auth, id, dto);
   }
 
   @Put('people/:id/cover')

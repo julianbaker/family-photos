@@ -1992,6 +1992,15 @@ export type FamilyRelativeResponseDto = {
     name: string;
     personId: string;
 };
+export type FamilyRelativeCreateDto = {
+    /** Father/mother/parent: also the partner of this other parent. Child/pet: also the child or pet of this partner */
+    alsoWith?: string;
+    /** Someone already in the family */
+    existingId?: string;
+    kind: FamilyRelativeKind;
+    /** Or a new person (a pet for kind "pet") */
+    newName?: string;
+};
 export type FamilyRelationResponseDto = {
     id: string;
     label: string | null;
@@ -1999,6 +2008,12 @@ export type FamilyRelationResponseDto = {
     qualifier: (FamilyRelationQualifier) | null;
     relatedPersonId: string;
     "type": FamilyRelationType;
+};
+export type FamilyRelativeCreatedDto = {
+    /** The relative */
+    personId: string;
+    /** The relations recorded */
+    relations: FamilyRelationResponseDto[];
 };
 export type FamilyRelationCreateDto = {
     /** Only for custom relations */
@@ -6238,6 +6253,22 @@ export function getFamilyRelatives({ id, keys }: {
     }));
 }
 /**
+ * Add a relative
+ */
+export function addFamilyRelative({ id, familyRelativeCreateDto }: {
+    id: string;
+    familyRelativeCreateDto: FamilyRelativeCreateDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: FamilyRelativeCreatedDto;
+    }>(`/family/people/${encodeURIComponent(id)}/relatives`, oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyRelativeCreateDto
+    })));
+}
+/**
  * List relations
  */
 export function getFamilyRelations(opts?: Oazapfts.RequestOpts) {
@@ -9214,6 +9245,16 @@ export enum FamilyGender {
 export enum FamilyPersonKind {
     Person = "person",
     Pet = "pet"
+}
+export enum FamilyRelativeKind {
+    Father = "father",
+    Mother = "mother",
+    Parent = "parent",
+    Partner = "partner",
+    Child = "child",
+    Sibling = "sibling",
+    Pet = "pet",
+    Owner = "owner"
 }
 export enum FamilyRelationQualifier {
     Step = "step",

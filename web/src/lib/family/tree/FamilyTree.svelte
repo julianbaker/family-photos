@@ -34,12 +34,9 @@
 
   const byId = $derived(new Map(people.map((person) => [person.id, person])));
   const graph = $derived(buildGraph(people, relations));
-  // pets hang from their owners; they get no father, mother or partner slots
-  const layout = $derived.by(() => {
-    const full = layoutTree(graph, focusId, { editable: canEdit });
-    const isPet = (id: string) => people.find((person) => person.id === id)?.kind === FamilyPersonKind.Pet;
-    return { ...full, tiles: full.tiles.filter((tile) => tile.kind !== 'add' || !isPet(tile.forId)) };
-  });
+  // pets hang from their owners; they get no father, mother, partner or child slots
+  const isPet = (id: string) => people.find((person) => person.id === id)?.kind === FamilyPersonKind.Pet;
+  const layout = $derived(layoutTree(graph, focusId, { editable: canEdit, isPet }));
   const focus = $derived(byId.get(focusId));
 
   // ---- camera: the canvas is translated and scaled; (0, 0) in tree space is the focused person
@@ -139,10 +136,11 @@
     }
     saving = true;
     try {
-      const other = companion(graph, adding.kind, adding.forId);
+      const other = isPet(adding.forId) ? null : companion(graph, adding.kind, adding.forId);
       await addRelative({
         kind: adding.kind,
         forId: adding.forId,
+        forIsPet: isPet(adding.forId),
         ...choice,
         withCompanion: linkCompanion && other ? other.id : null,
       });
@@ -597,7 +595,7 @@
       </div>
 
       {#if adding}
-        {const other = $derived(companion(graph, adding.kind, adding.forId))}
+        {const other = $derived(isPet(adding.forId) ? null : companion(graph, adding.kind, adding.forId))}
         <div class="flex flex-col gap-2">
           <Text fontWeight="semi-bold">Add {byId.get(adding.forId)?.name || 'their'}'s {KIND_LABEL[adding.kind]}</Text>
           <PersonPicker

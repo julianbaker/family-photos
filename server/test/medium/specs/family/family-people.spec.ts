@@ -1,6 +1,6 @@
 import { Kysely } from 'kysely';
 import { FamilyPeopleService } from 'src/family/family-people.service.js';
-import { JobName } from 'src/enum.js';
+import { AssetVisibility, JobName, SourceType } from 'src/enum.js';
 import { RelationQualifier, RelationType } from 'src/family/family-relations.js';
 import { FamilyRole } from 'src/family/family.enum.js';
 import { FamilyRepository } from 'src/family/family.repository.js';
@@ -354,6 +354,108 @@ describe(FamilyPeopleService.name, () => {
       expect(after.updatedAt).not.toBe(before.updatedAt);
       // a photo she isn't in can't be her picture
       await expect(sut.setCover(memberAuth, amyId, { assetId: elsewhere.id })).rejects.toThrow('not recognised');
+    });
+  });
+
+  describe('adding a relative', () => {
+    const familyPeopleCount = (ctx: Setup['ctx']) =>
+      ctx.database.selectFrom('family_person').select((eb) => eb.fn.countAll<number>().as('n')).executeTakeFirstOrThrow();
+
+    it('adds a new father as a male parent, and the other parent as his partner when asked', async () => {
+      const setupResult = setup();
+      const { sut } = setupResult;
+      const { memberAuth } = await newFamily(setupResult);
+      const kid = await sut.create(memberAuth, { name: 'Kid' });
+      const mum = await sut.addRelative(memberAuth, kid.id, { kind: 'mother', newName: 'Mum' });
+
+      const dad = await sut.addRelative(memberAuth, kid.id, { kind: 'father', newName: 'Dad', alsoWith: mum.personId });
+
+      expect((await sut.get(memberAuth, dad.personId)).gender).toBe('male');
+      expect(dad.relations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ personId: dad.personId, relatedPersonId: kid.id, type: RelationType.Parent }),
+          expect.objectContaining({ type: RelationType.Spouse }),
+        ]),
+      );
+    });
+
+    it('refuses a third owner for a pet without leaving a new person behind', async () => {
+      const setupResult = setup();
+      const { ctx, sut } = setupResult;
+      const { memberAuth } = await newFamily(setupResult);
+      const alice = await sut.create(memberAuth, { name: 'Alice' });
+      const bob = await sut.create(memberAuth, { name: 'Bob' });
+      const rex = await sut.addRelative(memberAuth, alice.id, { kind: 'pet', newName: 'Rex' });
+      expect((await sut.get(memberAuth, rex.personId)).kind).toBe('pet');
+      await sut.addRelative(memberAuth, rex.personId, { kind: 'owner', existingId: bob.id });
+      const before = await familyPeopleCount(ctx);
+
+      await expect(sut.addRelative(memberAuth, rex.personId, { kind: 'owner', newName: 'Carol' })).rejects.toThrow(
+        'two owners',
+      );
+      expect(await familyPeopleCount(ctx)).toEqual(before);
+    });
+
+    it('writes nothing when the companion relation is refused', async () => {
+      const setupResult = setup();
+      const { ctx, sut } = setupResult;
+      const { memberAuth } = await newFamily(setupResult);
+      const gran = await sut.create(memberAuth, { name: 'Gran' });
+      const kid = await sut.addRelative(memberAuth, gran.id, { kind: 'child', newName: 'Kid' });
+      const relationsBefore = await sut.getRelations(memberAuth);
+      const peopleBefore = await familyPeopleCount(ctx);
+
+      // a new parent of Gran recorded as the partner of Gran's own child: an ancestor can't be a partner
+      await expect(
+        sut.addRelative(memberAuth, gran.id, { kind: 'parent', newName: 'Great Gran', alsoWith: kid.personId }),
+      ).rejects.toThrow();
+      expect(await sut.getRelations(memberAuth)).toEqual(relationsBefore);
+      expect(await familyPeopleCount(ctx)).toEqual(peopleBefore);
+    });
+
+    it("keeps people's and pets' relatives apart", async () => {
+      const setupResult = setup();
+      const { sut } = setupResult;
+      const { memberAuth } = await newFamily(setupResult);
+      const alice = await sut.create(memberAuth, { name: 'Alice' });
+      const rex = await sut.create(memberAuth, { name: 'Rex', kind: 'pet' });
+      await expect(sut.addRelative(memberAuth, alice.id, { kind: 'owner', existingId: rex.id })).rejects.toThrow(
+        'Only a pet has owners',
+      );
+      await expect(sut.addRelative(memberAuth, rex.id, { kind: 'sibling', newName: 'Spot' })).rejects.toThrow('owners');
+    });
+  });
+
+  describe('pictures the family may see', () => {
+    it('never uses a Locked photo for a key photo, and replaces a cover whose photo was locked', async () => {
+      const setupResult = setup();
+      const { ctx, sut } = setupResult;
+      const { admin, memberAuth, amyId } = await newFamily(setupResult);
+      const { asset: shared } = await ctx.newAsset({ ownerId: admin.id });
+      const { asset: locked } = await ctx.newAsset({ ownerId: admin.id, visibility: AssetVisibility.Locked });
+      const { assetFace: sharedFace } = await ctx.newAssetFace({ assetId: shared.id, personGroupId: amyId });
+      const { assetFace: lockedFace } = await ctx.newAssetFace({ assetId: locked.id, personGroupId: amyId });
+
+      await expect(sut.setCover(memberAuth, amyId, { assetId: locked.id })).rejects.toThrow('can see');
+
+      // a cover set before the photo went into a Locked folder
+      await ctx.database.updateTable('person').set({ faceAssetId: lockedFace.id }).where('personGroupId', '=', amyId).execute();
+      const family = await ctx.database.selectFrom('family').select('id').executeTakeFirstOrThrow();
+      await sut.repairCovers(family.id);
+
+      const covers = await ctx.database.selectFrom('person').select('faceAssetId').where('personGroupId', '=', amyId).execute();
+      expect(covers.every((cover) => cover.faceAssetId === sharedFace.id)).toBe(true);
+    });
+
+    it('treats someone as a pet only when all their faces were found by pet recognition', async () => {
+      const setupResult = setup();
+      const { ctx, sut } = setupResult;
+      const { admin, memberAuth, amyId } = await newFamily(setupResult);
+      const { asset } = await ctx.newAsset({ ownerId: admin.id });
+      await ctx.newAssetFace({ assetId: asset.id, personGroupId: amyId, sourceType: SourceType.MachineLearning });
+      // a dog's box assigned to Amy by mistake
+      await ctx.newAssetFace({ assetId: asset.id, personGroupId: amyId, sourceType: SourceType.Pet });
+      expect((await sut.get(memberAuth, amyId)).kind).toBe('person');
     });
   });
 

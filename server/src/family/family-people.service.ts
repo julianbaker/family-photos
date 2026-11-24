@@ -14,6 +14,8 @@ import {
   FamilyPersonUpdateDto,
   FamilyRelationCreateDto,
   FamilyRelationResponseDto,
+  FamilyRelativeCreateDto,
+  FamilyRelativeCreatedDto,
   FamilyRelativeResponseDto,
   FamilyRelativesQueryDto,
 } from 'src/family/family-people.dto.js';
@@ -34,7 +36,11 @@ import { FamilyRelationTable } from 'src/family/schema/family-relation.table.js'
 import type { ArgOf } from 'src/repositories/event.repository.js';
 import { BaseService } from 'src/services/base.service.js';
 
-type PersonRow = Selectable<FamilyPersonTable> & { faceCount?: number | string | null; hasPetFaces?: boolean | number | null };
+type PersonRow = Selectable<FamilyPersonTable> & {
+  faceCount?: number | string | null;
+  hasPetFaces?: boolean | number | null;
+  pictureAt?: Date | string | null;
+};
 
 /** 'YYYY-MM-DD' from a date column, whatever form the driver returns it in. */
 export const toDateString = (value: unknown): string | null => {
@@ -307,17 +313,19 @@ export class FamilyPeopleService extends BaseService {
     await this.repairCovers(membership.familyId, targetId);
   }
 
-  /** The family's choice of someone's picture: their face in one photo, the same for every member. */
+  /**
+  The family's choice of someone's picture: their clearest face in one photo, on every member's copy
+  (the family shares one picture of each person). The photo must be one the family may see.
+  */
   async setCover(auth: AuthDto, id: string, dto: FamilyPersonCoverDto): Promise<FamilyPersonResponseDto> {
     const membership = await requireFamilyRole(this.familyRepository, auth, CONTRIBUTOR_ROLES);
     await this.requirePerson(membership, id);
-    const face = await this.familyRepository.getFaceInAsset(id, dto.assetId);
+    const face = await this.familyRepository.getShareableFaceInAsset(membership.familyId, id, dto.assetId);
     if (!face) {
-      throw new BadRequestException('They are not recognised in that photo');
+      throw new BadRequestException('They are not recognised in a photo the family can see');
     }
     const owners = await this.familyRepository.setGroupCover(id, face.id);
-    // a new updatedAt tells the apps their cached picture is out of date
-    await this.familyRepository.updateFamilyPerson(id, { updatedById: auth.user.id });
+    // the picture's version (updatedAt) changes again when the job has written the new picture
     for (const { ownerId } of owners) {
       await this.jobRepository.queue({ name: JobName.PersonGenerateThumbnail, data: { ownerId, personGroupId: id } });
     }
@@ -326,8 +334,8 @@ export class FamilyPeopleService extends BaseService {
   }
 
   /**
-  Gives a face picture to anyone who has photos but no cover face: merging into a record that had no
-  photos (an accidental duplicate) keeps that record, so the merged photos arrive without a cover.
+  Gives a shareable picture to anyone who has none: a merge kept a photo-less duplicate, the cover's photo
+  was locked or trashed, its face was moved to someone else, or its owner left the family.
   */
   async repairCovers(familyId: string, personGroupId?: string) {
     const missing = await this.familyRepository.getPeopleWithoutCover(familyId, personGroupId);
@@ -417,6 +425,136 @@ export class FamilyPeopleService extends BaseService {
       'relation',
     );
     return this.mapRelation(relation);
+  }
+
+  /**
+  Adds a father, mother, parent, partner, child, sibling, pet or (for a pet) owner: someone already in
+  the family or a new person, plus the one companion relation asked for. Every relation is checked
+  against the family's rules first and everything is written in one transaction, so a rejected relation
+  never leaves a new person behind.
+  */
+  async addRelative(auth: AuthDto, id: string, dto: FamilyRelativeCreateDto): Promise<FamilyRelativeCreatedDto> {
+    const membership = await requireFamilyRole(this.familyRepository, auth, CONTRIBUTOR_ROLES);
+    await this.requirePerson(membership, id);
+    if (dto.existingId) {
+      await this.requirePerson(membership, dto.existingId);
+    }
+    if (dto.alsoWith) {
+      await this.requirePerson(membership, dto.alsoWith);
+    }
+    const [people, stored] = await Promise.all([
+      this.familyRepository.getFamilyPeople(membership.familyId),
+      this.familyRepository.getRelations(membership.familyId),
+    ]);
+    const isPet = (personId: string) => {
+      const person = people.find((item) => item.personGroupId === personId);
+      return !!person && (person.kind === 'pet' || (person.kind === null && !!person.hasPetFaces));
+    };
+    if (dto.kind === 'owner' && !isPet(id)) {
+      throw new BadRequestException('Only a pet has owners');
+    }
+    if (dto.kind !== 'owner' && isPet(id)) {
+      throw new BadRequestException("A pet's relatives are its owners");
+    }
+
+    const other = dto.existingId ?? 'NEW';
+    const gender = dto.kind === 'father' ? 'male' : dto.kind === 'mother' ? 'female' : null;
+    const parent = (from: string, to: string) => ({ personId: from, relatedPersonId: to, type: RelationType.Parent });
+    const planned: Array<{ personId: string; relatedPersonId: string; type: RelationType }> = [];
+    switch (dto.kind) {
+      case 'father':
+      case 'mother':
+      case 'parent':
+      case 'owner': {
+        planned.push(parent(other, id));
+        if (dto.alsoWith && dto.kind !== 'owner') {
+          planned.push({ personId: dto.alsoWith, relatedPersonId: other, type: RelationType.Spouse });
+        }
+        break;
+      }
+      case 'child':
+      case 'pet': {
+        planned.push(parent(id, other));
+        if (dto.alsoWith) {
+          planned.push(parent(dto.alsoWith, other));
+        }
+        break;
+      }
+      case 'partner': {
+        planned.push({ personId: id, relatedPersonId: other, type: RelationType.Spouse });
+        break;
+      }
+      default: {
+        planned.push({ personId: id, relatedPersonId: other, type: RelationType.Sibling });
+      }
+    }
+
+    // check each relation against the family as it would be with the ones before it, new person included
+    const graphPeople = [
+      ...people.map((person) => ({
+        id: person.personGroupId,
+        gender: (person.gender as Gender) ?? null,
+        pet: isPet(person.personGroupId),
+      })),
+      ...(dto.existingId ? [] : [{ id: 'NEW', gender: gender as Gender, pet: dto.kind === 'pet' }]),
+    ];
+    const accepted: StoredRelation[] = stored.map((relation) => this.toStored(relation));
+    const toWrite: Array<{ personId: string; relatedPersonId: string; type: RelationType }> = [];
+    for (const relation of planned) {
+      let { personId, relatedPersonId } = relation;
+      if (isUndirected(relation.type) && personId !== 'NEW' && relatedPersonId !== 'NEW' && personId > relatedPersonId) {
+        [personId, relatedPersonId] = [relatedPersonId, personId];
+      }
+      const candidate = { personId, relatedPersonId, type: relation.type, qualifier: null, label: null };
+      const error = validateRelation(new FamilyGraph(graphPeople, accepted), candidate);
+      if (error) {
+        throw new BadRequestException(error);
+      }
+      if (accepted.some((item) => item.personId === personId && item.relatedPersonId === relatedPersonId && item.type === relation.type)) {
+        throw new BadRequestException('That relation is already recorded');
+      }
+      accepted.push({ id: `planned-${accepted.length}`, ...candidate });
+      toWrite.push({ personId, relatedPersonId, type: relation.type });
+    }
+
+    const { newId, relations } = await this.familyRepository.addRelative(
+      { id: membership.familyId, clusterGroupId: membership.clusterGroupId },
+      dto.newName
+        ? { name: dto.newName, gender, kind: dto.kind === 'pet' ? 'pet' : null, updatedById: auth.user.id }
+        : null,
+      toWrite.map((relation) => ({
+        personGroupId: relation.personId,
+        relatedPersonGroupId: relation.relatedPersonId,
+        type: relation.type,
+        qualifier: null,
+        label: null,
+        createdById: auth.user.id,
+      })),
+      (type) => isUndirected(type as RelationType),
+    );
+    const relativeId = newId ?? dto.existingId!;
+    if (newId) {
+      await this.familyRepository.mirrorFamilyPeople(membership.familyId, newId);
+      await this.recordHistory(membership, auth, FamilyHistoryAction.PersonCreate, newId, null, { name: dto.newName });
+    }
+    for (const relation of relations) {
+      await this.recordHistory(
+        membership,
+        auth,
+        FamilyHistoryAction.RelationCreate,
+        relation.id,
+        null,
+        this.toStored(relation),
+        'relation',
+      );
+    }
+    const latest = await this.familyRepository.getRelations(membership.familyId);
+    return {
+      personId: relativeId,
+      relations: latest
+        .filter((relation) => relations.some((created) => created.id === relation.id))
+        .map((relation) => this.mapRelation(relation)),
+    };
   }
 
   async deleteRelation(auth: AuthDto, id: string): Promise<void> {
@@ -643,7 +781,10 @@ export class FamilyPeopleService extends BaseService {
       faceCount: Number(person.faceCount ?? 0),
       // set by hand, or a pet because pet recognition found its photos
       kind: person.kind === 'pet' || person.kind === 'person' ? person.kind : person.hasPetFaces ? 'pet' : 'person',
-      updatedAt: new Date(person.updatedAt).toISOString(),
+      // the later of the family record and the picture: a new value means a new picture
+      updatedAt: new Date(
+        Math.max(new Date(person.updatedAt).getTime(), person.pictureAt ? new Date(person.pictureAt).getTime() : 0),
+      ).toISOString(),
       relationToMe,
     };
   }

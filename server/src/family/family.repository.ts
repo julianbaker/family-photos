@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Insertable, Kysely, Updateable, sql } from 'kysely';
+import { Insertable, Kysely, RawBuilder, Updateable, sql } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { InjectKysely } from 'nestjs-kysely';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
@@ -475,16 +475,38 @@ export class FamilyRepository {
           .where('asset_face.isVisible', '=', true)
           .as('faceCount'),
       )
+      // a pet when its faces were all found by pet recognition: one stray pet box assigned to a person
+      // by hand doesn't turn them into a pet
       .select((eb) =>
         eb
-          .exists(
-            eb
-              .selectFrom('asset_face')
-              .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
-              .where('asset_face.sourceType', '=', sql.lit(SourceType.Pet))
-              .where('asset_face.deletedAt', 'is', null),
-          )
+          .and([
+            eb.exists(
+              eb
+                .selectFrom('asset_face')
+                .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
+                .where('asset_face.sourceType', '=', sql.lit(SourceType.Pet))
+                .where('asset_face.deletedAt', 'is', null),
+            ),
+            eb.not(
+              eb.exists(
+                eb
+                  .selectFrom('asset_face')
+                  .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
+                  .where('asset_face.sourceType', '!=', sql.lit(SourceType.Pet))
+                  .where('asset_face.deletedAt', 'is', null),
+              ),
+            ),
+          ])
           .as('hasPetFaces'),
+      )
+      // when anyone's copy last changed (its picture is rewritten by the thumbnail job): apps use it
+      // to know a cached picture is out of date
+      .select((eb) =>
+        eb
+          .selectFrom('person')
+          .select((eb) => eb.fn.max('person.updatedAt').as('pictureAt'))
+          .whereRef('person.personGroupId', '=', 'family_person.personGroupId')
+          .as('pictureAt'),
       )
       .where('family_person.familyId', '=', familyId)
       .orderBy('family_person.name', 'asc')
@@ -526,6 +548,50 @@ export class FamilyRepository {
         .values({ ...values, personGroupId: group.id, familyId: family.id })
         .returningAll()
         .executeTakeFirstOrThrow();
+    });
+  }
+
+  /**
+  Adds a relative in one transaction: the new person (when there is one) and every relation, so a
+  failure leaves nothing behind. `NEW` in a relation stands for the new person's id.
+  */
+  async addRelative(
+    family: { id: string; clusterGroupId: string },
+    newPerson: Omit<Insertable<FamilyPersonTable>, 'personGroupId' | 'familyId'> | null,
+    relations: Omit<Insertable<FamilyRelationTable>, 'familyId'>[],
+    /** Relations stored once with the smaller id first (spouse, sibling, friend). */
+    undirected: (type: string) => boolean,
+  ) {
+    return this.db.transaction().execute(async (trx) => {
+      let newId: string | null = null;
+      if (newPerson) {
+        const group = await trx
+          .insertInto('person_group')
+          .values({ clusterGroupId: family.clusterGroupId })
+          .returning('id')
+          .executeTakeFirstOrThrow();
+        newId = group.id;
+        await trx
+          .insertInto('family_person')
+          .values({ ...newPerson, personGroupId: newId, familyId: family.id })
+          .execute();
+      }
+      const resolve = (id: string) => (id === 'NEW' ? newId! : id);
+      const created = await trx
+        .insertInto('family_relation')
+        .values(
+          relations.map((relation) => {
+            let a = resolve(relation.personGroupId);
+            let b = resolve(relation.relatedPersonGroupId);
+            if (undirected(relation.type) && a > b) {
+              [a, b] = [b, a];
+            }
+            return { ...relation, familyId: family.id, personGroupId: a, relatedPersonGroupId: b };
+          }),
+        )
+        .returningAll()
+        .execute();
+      return { newId, relations: created };
     });
   }
 
@@ -712,8 +778,25 @@ export class FamilyRepository {
   }
 
   /**
-  Members' records of the family's people that have photos but no cover face (a merge kept a record
-  that had none), each with the face to use: the largest one on a photo that isn't hidden or deleted.
+  A face the whole family may see as someone's picture: still there and not cut off by an edit, still
+  theirs, on a photo in a family member's timeline or archive (never Locked, Hidden or in the trash).
+  `face` and `group` are SQL references to the face id and the person group it must belong to.
+  */
+  private shareableFace(familyId: string, face: RawBuilder<unknown>, group: RawBuilder<unknown>) {
+    return sql<boolean>`exists (
+      select 1 from "asset_face" sf
+      join "asset" sa on sa."id" = sf."assetId"
+      join "family_member" sm on sm."userId" = sa."ownerId" and sm."familyId" = ${familyId}
+      where sf."id" = ${face} and sf."personGroupId" = ${group}
+        and sf."deletedAt" is null and sf."isVisible" is true
+        and sa."deletedAt" is null and sa."visibility" in ('timeline', 'archive')
+    )`;
+  }
+
+  /**
+  Members' records of people who have no picture anyone may see: nobody's cover is a shareable face
+  (a merge kept a photo-less duplicate, a cover's photo was locked or trashed, its face was moved to
+  someone else, or its owner left the family). Each comes with the face to use: the largest shareable one.
   */
   @GenerateSql({ params: [DummyValue.UUID] })
   getPeopleWithoutCover(familyId: string, personGroupId?: string) {
@@ -725,16 +808,20 @@ export class FamilyRepository {
           eb
             .selectFrom('asset_face')
             .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+            .innerJoin('family_member', (join) =>
+              join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
+            )
             .select('asset_face.id as faceId')
             .whereRef('asset_face.personGroupId', '=', 'person.personGroupId')
             .where('asset_face.deletedAt', 'is', null)
             .where('asset_face.isVisible', '=', true)
             .where('asset.deletedAt', 'is', null)
-            .where('asset.visibility', '!=', sql.lit(AssetVisibility.Hidden))
+            .where('asset.visibility', 'in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)])
             .orderBy(
               sql`("asset_face"."boundingBoxX2" - "asset_face"."boundingBoxX1") * ("asset_face"."boundingBoxY2" - "asset_face"."boundingBoxY1")`,
               'desc',
             )
+            .orderBy('asset_face.id')
             .limit(1)
             .as('cover'),
         (join) => join.onTrue(),
@@ -742,31 +829,37 @@ export class FamilyRepository {
       .select(['person.ownerId', 'person.personGroupId', 'cover.faceId'])
       .where('family_person.familyId', '=', familyId)
       .$if(!!personGroupId, (qb) => qb.where('person.personGroupId', '=', personGroupId!))
-      .where('person.faceAssetId', 'is', null)
-      // members' mirrored copies have no cover by design and borrow anyone's picture; only a group
-      // nobody has a cover for has no picture at all
+      // members' copies without a cover borrow anyone's picture (by design): only a group where no
+      // copy has a shareable cover needs one
       .where((eb) =>
         eb.not(
           eb.exists(
             eb
               .selectFrom('person as covered')
               .whereRef('covered.personGroupId', '=', 'person.personGroupId')
-              .where('covered.faceAssetId', 'is not', null),
+              .where('covered.faceAssetId', 'is not', null)
+              .where(() => this.shareableFace(familyId, sql.ref('covered.faceAssetId'), sql.ref('covered.personGroupId'))),
           ),
         ),
       )
       .execute();
   }
 
-  /** The person's face in a photo, if they're in it. */
-  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
-  getFaceInAsset(personGroupId: string, assetId: string) {
+  /** The person's clearest shareable face in a photo, if they're in it and the family may see it. */
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID, DummyValue.UUID] })
+  getShareableFaceInAsset(familyId: string, personGroupId: string, assetId: string) {
     return this.db
       .selectFrom('asset_face')
       .select('asset_face.id')
       .where('asset_face.personGroupId', '=', personGroupId)
       .where('asset_face.assetId', '=', assetId)
-      .where('asset_face.deletedAt', 'is', null)
+      .where(() => this.shareableFace(familyId, sql.ref('asset_face.id'), sql.ref('asset_face.personGroupId')))
+      .orderBy(
+        sql`("asset_face"."boundingBoxX2" - "asset_face"."boundingBoxX1") * ("asset_face"."boundingBoxY2" - "asset_face"."boundingBoxY1")`,
+        'desc',
+      )
+      .orderBy('asset_face.id')
+      .limit(1)
       .executeTakeFirst();
   }
 
@@ -817,7 +910,8 @@ export class FamilyRepository {
       )
       .select(['asset.id', 'asset.ownerId', 'preview.path as previewPath'])
       .where('asset.deletedAt', 'is', null)
-      .where('asset.visibility', '!=', sql.lit(AssetVisibility.Hidden))
+      // never a member's Locked folder (private) or the hidden half of a live photo
+      .where('asset.visibility', 'in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)])
       .where((eb) =>
         eb.not(
           eb.exists(
@@ -831,6 +925,29 @@ export class FamilyRepository {
       .orderBy('asset.createdAt', 'asc')
       .limit(limit)
       .execute();
+  }
+
+  /**
+  Removes pet faces from photos the family may no longer see (moved to a Locked folder, hidden or
+  deleted): pets only come from the family's shared photos. Returns how many went.
+  */
+  async removePetFacesOnPrivatePhotos() {
+    const removed = await this.db
+      .deleteFrom('asset_face')
+      .where('asset_face.sourceType', '=', sql.lit(SourceType.Pet))
+      .where('asset_face.assetId', 'in', (eb) =>
+        eb
+          .selectFrom('asset')
+          .select('asset.id')
+          .where((eb) =>
+            eb.or([
+              eb('asset.deletedAt', 'is not', null),
+              eb('asset.visibility', 'not in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)]),
+            ]),
+          ),
+      )
+      .executeTakeFirst();
+    return Number(removed.numDeletedRows);
   }
 
   /** One photo, if it belongs to a member of the family, with its preview and current pet faces. */
@@ -857,7 +974,8 @@ export class FamilyRepository {
       .select(['asset.id', 'asset.ownerId', 'preview.path as previewPath'])
       .where('asset.id', '=', assetId)
       .where('asset.deletedAt', 'is', null)
-      .where('asset.visibility', '!=', sql.lit(AssetVisibility.Hidden))
+      // never a member's Locked folder (private) or the hidden half of a live photo
+      .where('asset.visibility', 'in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)])
       .executeTakeFirst();
   }
 

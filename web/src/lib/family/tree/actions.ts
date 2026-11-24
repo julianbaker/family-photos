@@ -1,5 +1,5 @@
 // family fork: adding relatives from the tree, the way FamilySearch and Ancestry do it.
-import { FamilyGender, FamilyRelationType, createFamilyPerson, createFamilyRelation } from '@immich/sdk';
+import { FamilyRelativeKind, addFamilyRelative } from '@immich/sdk';
 import { parentsOf, partnersOf, type FamilyGraph } from './layout';
 
 export type RelativeKind = 'father' | 'mother' | 'parent' | 'partner' | 'child' | 'sibling';
@@ -38,58 +38,36 @@ export const companion = (
 };
 
 /**
-Records the new relative: picks an existing person or creates one (a new father is male, a new
-mother female), adds the relation, and the companion relation when asked. Returns the relative's id.
+Records the new relative in one request: the server checks the family's rules first and writes the
+new person (a new father is male, a new mother female) and the relations together, so a refused
+relation never leaves a stray person behind. For a pet, a "parent" is an owner. Returns the relative's id.
 */
 export const addRelative = async ({
   kind,
   forId,
+  forIsPet = false,
   existingId,
   newName,
   withCompanion,
 }: {
   kind: RelativeKind;
   forId: string;
+  forIsPet?: boolean;
   existingId?: string;
   newName?: string;
   withCompanion?: string | null;
 }) => {
-  let otherId = existingId;
-  if (!otherId) {
-    const gender = kind === 'father' ? FamilyGender.Male : kind === 'mother' ? FamilyGender.Female : undefined;
-    const created = await createFamilyPerson({ familyPersonCreateDto: { name: newName!.trim(), gender } });
-    otherId = created.id;
-  }
-  const relation = (personId: string, relatedPersonId: string, type: FamilyRelationType) =>
-    createFamilyRelation({ familyRelationCreateDto: { personId, relatedPersonId, type } });
-
-  switch (kind) {
-    case 'father':
-    case 'mother':
-    case 'parent': {
-      await relation(otherId, forId, FamilyRelationType.Parent);
-      if (withCompanion) {
-        await relation(withCompanion, otherId, FamilyRelationType.Spouse);
-      }
-
-      break;
-    }
-    case 'child': {
-      await relation(forId, otherId, FamilyRelationType.Parent);
-      if (withCompanion) {
-        await relation(withCompanion, otherId, FamilyRelationType.Parent);
-      }
-
-      break;
-    }
-    case 'partner': {
-      await relation(forId, otherId, FamilyRelationType.Spouse);
-
-      break;
-    }
-    default: {
-      await relation(forId, otherId, FamilyRelationType.Sibling);
-    }
-  }
-  return otherId;
+  const relativeKind: FamilyRelativeKind = forIsPet
+    ? FamilyRelativeKind.Owner
+    : (kind as unknown as FamilyRelativeKind);
+  const { personId } = await addFamilyRelative({
+    id: forId,
+    familyRelativeCreateDto: {
+      kind: relativeKind,
+      existingId,
+      newName: newName?.trim() || undefined,
+      alsoWith: forIsPet ? undefined : (withCompanion ?? undefined),
+    },
+  });
+  return personId;
 };

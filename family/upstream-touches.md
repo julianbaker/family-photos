@@ -26,6 +26,7 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `server/src/services/index.ts` | registers `FamilyPetService` | Nest providers |
 | `server/Dockerfile` | `pet-models` stage (models pinned by revision and sha256) copied to `/usr/src/app/sibred-models` | pet recognition runs in the server, no ML image change |
 | `server/package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` | `onnxruntime-node` dependency; its CUDA-download install script disabled | runs the pet models; the CPU runtime ships in the package |
+| `server/src/queries/search.repository.sql` | regenerated for the `searchFaces` pet filter | upstream CI checks generated query files |
 | `.gitignore` | `sibred-models` | local copies of the models for development |
 
 ## Rules for merging upstream

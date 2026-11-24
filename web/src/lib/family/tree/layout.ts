@@ -148,12 +148,19 @@ export const siblingsOf = (graph: FamilyGraph, id: string) => {
 // ---------------------------------------------------------------------------------------------
 // layout
 
-export type LayoutOptions = { up?: number; down?: number; editable?: boolean };
+export type LayoutOptions = {
+  up?: number;
+  down?: number;
+  editable?: boolean;
+  /** Pets hang from their owners: no parent, partner or child slots for them. */
+  isPet?: (id: string) => boolean;
+};
 
 export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutOptions = {}): TreeLayout => {
   const up = options.up ?? 3;
   const down = options.down ?? 2;
   const editable = options.editable ?? true;
+  const isPet = options.isPet ?? (() => false);
   const tiles: TreeTile[] = [];
   const lines: TreeLine[] = [];
   const placed = new Set<string>();
@@ -180,6 +187,9 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
 
   /** The parent slots a person shows when parents are missing: father and mother, or the one missing. */
   const missingParents = (id: string): AddKind[] => {
+    if (isPet(id)) {
+      return [];
+    }
     const parents = parentsOf(graph, id).filter((parent) => !graph.parents.get(id)?.get(parent)?.indirect);
     if (parents.length >= 2) {
       return [];
@@ -304,7 +314,7 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     });
   }
   // an empty slot only when there's no partner yet; otherwise partners are added from the panel
-  if (editable && partners.length === 0) {
+  if (editable && partners.length === 0 && !isPet(focusId)) {
     slot('partner', focusId, UNIT, 0);
   }
 
@@ -481,7 +491,7 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
       lastRight = left + width * UNIT;
     }
     // an empty slot only when there are no children yet; otherwise children are added from the panel
-    if (editable && kids.length === 0) {
+    if (editable && kids.length === 0 && !isPet(focusId)) {
       slot('child', focusId, 0, 1);
       lines.push({
         key: 'add-child',

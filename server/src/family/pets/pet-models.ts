@@ -105,6 +105,17 @@ export class PetModels {
     return this.sessions;
   }
 
+  /** Frees the models' memory; they load again on next use. */
+  async release() {
+    const loading = this.sessions;
+    this.sessions = undefined;
+    if (!loading) {
+      return;
+    }
+    const { detector, recognizer } = await loading;
+    await Promise.all([detector.release(), recognizer.release()]);
+  }
+
   /** Dogs and cats in the image (the photo's preview), with boxes in the image's own pixels. */
   async detect(path: string, minScore: number): Promise<{ width: number; height: number; pets: DetectedPet[] }> {
     const { ort, detector } = await this.load();

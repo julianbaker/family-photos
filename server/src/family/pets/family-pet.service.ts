@@ -49,6 +49,7 @@ export const overlap = (
 const BATCH = 25;
 const RECONCILE_DELAY_MS = 15_000;
 const CATCH_UP_EVERY_MS = 6 * 60 * 60 * 1000;
+const IDLE_RELEASE_MS = 10 * 60 * 1000;
 
 @Injectable()
 export class FamilyPetService extends BaseService {
@@ -58,6 +59,7 @@ export class FamilyPetService extends BaseService {
   private running?: Promise<void>;
   private catchUpTimer?: NodeJS.Timeout;
   private reconcileTimer?: NodeJS.Timeout;
+  private idleTimer?: NodeJS.Timeout;
   private stopped = false;
 
   private getModels() {
@@ -87,6 +89,7 @@ export class FamilyPetService extends BaseService {
     this.stopped = true;
     clearInterval(this.catchUpTimer);
     clearTimeout(this.reconcileTimer);
+    clearTimeout(this.idleTimer);
   }
 
   /** A photo's preview was (re)made: look for pets in it. */
@@ -101,10 +104,21 @@ export class FamilyPetService extends BaseService {
 
   /** Runs the work loop unless it's already running; it picks up anything added meanwhile. */
   private schedule() {
-    this.running ??= this.runOnce()
+    if (this.running || this.stopped) {
+      return;
+    }
+    clearTimeout(this.idleTimer);
+    this.running = this.runOnce()
       .catch((error) => this.logger.error(`Pet recognition stopped: ${error}`, (error as Error)?.stack))
       .finally(() => {
         this.running = undefined;
+        if (this.pending.size > 0) {
+          // previews that arrived while this run was finishing: go again rather than wait hours
+          this.schedule();
+        } else {
+          // the models take about a gigabyte; let them go when there's nothing to do
+          this.idleTimer = setTimeout(() => void this.models?.release(), IDLE_RELEASE_MS);
+        }
       });
   }
 
@@ -114,7 +128,12 @@ export class FamilyPetService extends BaseService {
     if (!family) {
       return;
     }
-    let changed = false;
+    // pets come only from photos the family shares: drop any on photos since locked, hidden or deleted
+    const removed = await this.familyRepository.removePetFacesOnPrivatePhotos();
+    if (removed > 0) {
+      this.logger.log(`Removed ${removed} pet faces from photos the family no longer shares`);
+    }
+    let changed = removed > 0;
     // new previews first, then the library a batch at a time, until nothing is left
     for (;;) {
       if (this.stopped) {

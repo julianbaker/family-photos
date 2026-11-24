@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Kysely } from 'kysely';
-import { AssetFileType, SourceType } from 'src/enum.js';
+import { AssetFileType, AssetVisibility, SourceType } from 'src/enum.js';
 import { FamilyPeopleService } from 'src/family/family-people.service.js';
 import { FamilyRepository } from 'src/family/family.repository.js';
 import { FamilyService } from 'src/family/family.service.js';
@@ -112,6 +112,30 @@ describe('pet faces and human faces', () => {
 
     expect(people.map((face) => face.id)).toEqual([human]);
     expect(pets.map((face) => face.id)).toEqual([pet]);
+  });
+});
+
+describe('pets and private photos', () => {
+  it('never scans a Locked photo, and removes pet faces from photos that became private', async () => {
+    const setupResult = setup();
+    const { ctx } = setupResult;
+    const { admin, familyId } = await newFamily(setupResult);
+    const { asset: shared } = await ctx.newAsset({ ownerId: admin.id });
+    const { asset: locked } = await ctx.newAsset({ ownerId: admin.id, visibility: AssetVisibility.Locked });
+    await ctx.newAssetFile({ assetId: shared.id, type: AssetFileType.Preview, path: '/shared.jpg' });
+    await ctx.newAssetFile({ assetId: locked.id, type: AssetFileType.Preview, path: '/locked.jpg' });
+    const repository = ctx.get(FamilyRepository);
+
+    const toScan = await repository.getAssetsForPetScan(familyId, 'v', 10);
+    expect(toScan.map((asset) => asset.id)).toEqual([shared.id]);
+    expect(await repository.getAssetForPetScan(familyId, locked.id)).toBeUndefined();
+
+    // a pet found before the photo was moved to a Locked folder
+    await addFace(ctx, locked.id, SourceType.Pet, newEmbedding());
+    await addFace(ctx, locked.id, SourceType.MachineLearning, newEmbedding());
+    expect(await repository.removePetFacesOnPrivatePhotos()).toBe(1);
+    const left = await ctx.database.selectFrom('asset_face').select('sourceType').where('assetId', '=', locked.id).execute();
+    expect(left).toEqual([{ sourceType: SourceType.MachineLearning }]);
   });
 });
 

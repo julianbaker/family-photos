@@ -276,6 +276,12 @@ describe('pets', () => {
     expect(graph.relationship('me', 'rex')).toEqual({ key: 'pet', label: "grandparents' pet" });
     expect(graph.relationship('mum', 'rex')).toEqual({ key: 'pet', label: "parents' pet" });
     expect(graph.relationship('son', 'bo')).toEqual({ key: 'pet', label: "father's pet" });
+    // plurals are words, not a bare s: two owners who are both your children
+    const kids = new FamilyGraph(
+      [{ id: 'mum', gender: 'female' }, { id: 'a', gender: null }, { id: 'b', gender: null }, { id: 'cat', gender: null, pet: true }],
+      [rel('mum', 'a'), rel('mum', 'b'), rel('a', 'cat'), rel('b', 'cat')],
+    );
+    expect(kids.relationship('mum', 'cat')).toEqual({ key: 'pet', label: "children's pet" });
   });
 
   it('never gives a pet a person word like uncle or brother', () => {

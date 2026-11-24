@@ -85,6 +85,31 @@ const FamilyRelativeResponseSchema = z
   .object({ personId: z.uuidv4(), name: z.string(), key: z.string(), label: z.string() })
   .meta({ id: 'FamilyRelativeResponseDto' });
 
+const RelativeKindSchema = z
+  .enum(['father', 'mother', 'parent', 'partner', 'child', 'sibling', 'pet', 'owner'])
+  .describe('How the relative is related to the person: their father, partner, pet; or, for a pet, its owner')
+  .meta({ id: 'FamilyRelativeKind' });
+
+const FamilyRelativeCreateSchema = z
+  .object({
+    kind: RelativeKindSchema,
+    existingId: z.uuidv4().optional().describe('Someone already in the family'),
+    newName: z.string().trim().min(1).max(200).optional().describe('Or a new person (a pet for kind "pet")'),
+    alsoWith: z
+      .uuidv4()
+      .optional()
+      .describe('Father/mother/parent: also the partner of this other parent. Child/pet: also the child or pet of this partner'),
+  })
+  .refine((dto) => !!dto.existingId !== !!dto.newName, { message: 'Give either existingId or newName' })
+  .meta({ id: 'FamilyRelativeCreateDto' });
+
+const FamilyRelativeCreatedSchema = z
+  .object({
+    personId: z.uuidv4().describe('The relative'),
+    relations: z.array(FamilyRelationResponseSchema).describe('The relations recorded'),
+  })
+  .meta({ id: 'FamilyRelativeCreatedDto' });
+
 const FamilyPersonCoverSchema = z
   .object({ assetId: z.uuidv4().describe('A photo of this person; their face in it becomes their picture') })
   .meta({ id: 'FamilyPersonCoverDto' });
@@ -125,6 +150,8 @@ export class FamilyPersonResponseDto extends createZodDto(FamilyPersonResponseSc
 export class FamilyPersonCreateDto extends createZodDto(FamilyPersonCreateSchema) {}
 export class FamilyPersonUpdateDto extends createZodDto(FamilyPersonUpdateSchema) {}
 export class FamilyPersonCoverDto extends createZodDto(FamilyPersonCoverSchema) {}
+export class FamilyRelativeCreateDto extends createZodDto(FamilyRelativeCreateSchema) {}
+export class FamilyRelativeCreatedDto extends createZodDto(FamilyRelativeCreatedSchema) {}
 export class FamilyRelationCreateDto extends createZodDto(FamilyRelationCreateSchema) {}
 export class FamilyRelationResponseDto extends createZodDto(FamilyRelationResponseSchema) {}
 export class FamilyRelativeResponseDto extends createZodDto(FamilyRelativeResponseSchema) {}

@@ -5,7 +5,7 @@
   import { KIND_LABEL, addRelative, companion, type RelativeKind as TreeKind } from '#lib/family/tree/actions.ts';
   import { buildGraph } from '#lib/family/tree/layout.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
-  import type { FamilyPersonResponseDto, FamilyRelationResponseDto } from '@immich/sdk';
+  import { FamilyPersonKind, type FamilyPersonResponseDto, type FamilyRelationResponseDto } from '@immich/sdk';
   import { Button, Text } from '@immich/ui';
 
   export type RelativeKind = 'parent' | 'child' | 'spouse' | 'sibling';
@@ -22,7 +22,9 @@
 
   const treeKind: TreeKind = $derived(kind === 'spouse' ? 'partner' : kind);
   const graph = $derived(buildGraph(people, relations));
-  const other = $derived(companion(graph, treeKind, person.id));
+  // a pet's people are its owners: no "also their partner" companion for them
+  const forIsPet = $derived(people.find((item) => item.id === person.id)?.kind === FamilyPersonKind.Pet);
+  const other = $derived(forIsPet ? null : companion(graph, treeKind, person.id));
   let linkCompanion = $state(true);
   let saving = $state(false);
 
@@ -46,6 +48,7 @@
       await addRelative({
         kind: treeKind,
         forId: person.id,
+        forIsPet,
         ...choice,
         withCompanion: linkCompanion && other ? other.id : null,
       });
@@ -59,7 +62,7 @@
 </script>
 
 <div class="flex flex-col gap-3 rounded-xl border p-4 text-start dark:border-gray-700">
-  <Text fontWeight="semi-bold">Add {person.name || 'their'}'s {KIND_LABEL[treeKind]}</Text>
+  <Text fontWeight="semi-bold">Add {person.name || 'their'}'s {forIsPet ? 'owner' : KIND_LABEL[treeKind]}</Text>
   <PersonPicker
     {people}
     {exclude}
