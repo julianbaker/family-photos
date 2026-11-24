@@ -1947,6 +1947,7 @@ export type FamilyPersonResponseDto = {
     gender: (FamilyGender) | null;
     /** Person ID (the person group, same as in /people) */
     id: string;
+    kind: FamilyPersonKind;
     /** The member account this person is */
     linkedUserId: string | null;
     name: string;
@@ -1961,6 +1962,8 @@ export type FamilyPersonCreateDto = {
     /** Date, YYYY-MM-DD */
     deathDate?: string | null;
     gender?: (FamilyGender) | null;
+    /** Set by hand; null means worked out from the photos */
+    kind?: (FamilyPersonKind) | null;
     name: string;
 };
 export type FamilyPersonUpdateDto = {
@@ -1971,6 +1974,8 @@ export type FamilyPersonUpdateDto = {
     /** Date, YYYY-MM-DD */
     deathDate?: string | null;
     gender?: (FamilyGender) | null;
+    /** Set by hand; null means worked out from the photos */
+    kind?: (FamilyPersonKind) | null;
     /** Link to a member account ("this is me") */
     linkedUserId?: string | null;
     name?: string;
@@ -9161,7 +9166,8 @@ export enum AssetMediaSize {
 export enum SourceType {
     MachineLearning = "machine-learning",
     Exif = "exif",
-    Manual = "manual"
+    Manual = "manual",
+    Pet = "pet"
 }
 export enum FamilyRole {
     Admin = "admin",
@@ -9182,6 +9188,10 @@ export enum FamilyInviteStatus {
 export enum FamilyGender {
     Female = "female",
     Male = "male"
+}
+export enum FamilyPersonKind {
+    Person = "person",
+    Pet = "pet"
 }
 export enum FamilyRelationQualifier {
     Step = "step",

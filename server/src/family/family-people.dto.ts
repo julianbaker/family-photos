@@ -8,6 +8,10 @@ const GenderSchema = z
   .enum(['female', 'male'])
   .describe('Only used for words like "grandmother"')
   .meta({ id: 'FamilyGender' });
+const KindSchema = z
+  .enum(['person', 'pet'])
+  .describe('A person, or a pet (a dog or cat, found by pet recognition or added by hand)')
+  .meta({ id: 'FamilyPersonKind' });
 const RelationTypeSchema = z.enum(RelationType).describe('Relation type').meta({ id: 'FamilyRelationType' });
 const RelationQualifierSchema = z
   .enum(RelationQualifier)
@@ -31,6 +35,7 @@ const FamilyPersonResponseSchema = z
     bio: z.string().nullable(),
     linkedUserId: z.uuidv4().nullable().describe('The member account this person is'),
     faceCount: z.number().int().describe('Photos this person is recognised in'),
+    kind: KindSchema,
     relationToMe: RelationshipSchema.nullable().describe('How this person is related to the signed-in member'),
   })
   .meta({ id: 'FamilyPersonResponseDto' });
@@ -41,6 +46,7 @@ const personFields = {
   deathDate: dateOnly.nullable().optional(),
   gender: GenderSchema.nullable().optional(),
   bio: z.string().max(10_000).nullable().optional().describe('Paragraphs, **bold**, *italic* and [links](https://...)'),
+  kind: KindSchema.nullable().optional().describe('Set by hand; null means worked out from the photos'),
 };
 
 const FamilyPersonCreateSchema = z.object(personFields).meta({ id: 'FamilyPersonCreateDto' });

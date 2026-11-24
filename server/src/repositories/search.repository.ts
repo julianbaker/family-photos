@@ -6,7 +6,7 @@ import { columns } from 'src/database.js';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
 import { MapAsset } from 'src/dtos/asset-response.dto.js';
 import { SearchFilter, SearchOrder } from 'src/dtos/search.dto.js';
-import { AssetStatus, AssetType, AssetVisibility, VectorIndex } from 'src/enum.js';
+import { AssetStatus, AssetType, AssetVisibility, SourceType, VectorIndex } from 'src/enum.js';
 import { probes } from 'src/repositories/database.repository.js';
 import { DB } from 'src/schema/index.js';
 import { AssetExifTable } from 'src/schema/tables/asset-exif.table.js';
@@ -171,6 +171,8 @@ export interface FaceEmbeddingSearch extends Omit<SearchEmbeddingOptions, 'userI
   numResults: number;
   maxDistance: number;
   minBirthDate?: Date | null;
+  /** family fork: search pet faces (family/pets) instead of human faces; the two never mix */
+  pets?: boolean;
 }
 
 export interface FaceSearchResult {
@@ -353,7 +355,7 @@ export class SearchRepository {
       },
     ],
   })
-  searchFaces({ clusterGroupId, embedding, numResults, maxDistance, hasPerson, minBirthDate }: FaceEmbeddingSearch) {
+  searchFaces({ clusterGroupId, embedding, numResults, maxDistance, hasPerson, minBirthDate, pets }: FaceEmbeddingSearch) {
     if (!z.int().min(1).max(1000).safeParse(numResults).success) {
       throw new Error(`Invalid value for 'numResults': ${numResults}`);
     }
@@ -375,6 +377,8 @@ export class SearchRepository {
               eb.selectFrom('user').select('user.id').where('user.clusterGroupId', '=', clusterGroupId),
             )
             .where('asset.deletedAt', 'is', null)
+            // family fork: a person's face never matches a pet, nor a pet a person
+            .where('asset_face.sourceType', pets ? '=' : '!=', SourceType.Pet)
             .$if(!!hasPerson, (qb) => qb.where('asset_face.personGroupId', 'is not', null))
             .$if(!!minBirthDate, (qb) =>
               qb.where((eb) =>

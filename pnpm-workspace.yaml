@@ -29,6 +29,8 @@ allowBuilds:
   core-js-pure: false
   postman-code-generators: false
   unrs-resolver: false
+  # family fork: its install script only downloads CUDA libraries; the CPU runtime ships in the package
+  onnxruntime-node: false
 overrides:
   canvas: 3.2.3
   sharp: ^0.35.3

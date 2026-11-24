@@ -339,7 +339,16 @@ select
       "asset_face"."personGroupId" = "family_person"."personGroupId"
       and "asset_face"."deletedAt" is null
       and "asset_face"."isVisible" = $1
-  ) as "faceCount"
+  ) as "faceCount",
+  exists (
+    select
+    from
+      "asset_face"
+    where
+      "asset_face"."personGroupId" = "family_person"."personGroupId"
+      and "asset_face"."sourceType" = 'pet'
+      and "asset_face"."deletedAt" is null
+  ) as "hasPetFaces"
 from
   "family_person"
 where
@@ -504,3 +513,117 @@ from
   "family" f
 where
   f."id" = $1
+
+-- FamilyRepository.getAssetsForPetScan
+select
+  "asset"."id",
+  "asset"."ownerId",
+  "preview"."path" as "previewPath"
+from
+  "asset"
+  inner join "family_member" on "family_member"."userId" = "asset"."ownerId"
+  and "family_member"."familyId" = $1
+  inner join lateral (
+    select
+      "asset_file"."path"
+    from
+      "asset_file"
+    where
+      "asset_file"."assetId" = "asset"."id"
+      and "asset_file"."type" = 'preview'
+    order by
+      "asset_file"."isEdited" desc
+    limit
+      $2
+  ) as "preview" on true
+where
+  "asset"."deletedAt" is null
+  and "asset"."visibility" != 'hidden'
+  and not exists (
+    select
+    from
+      "family_pet_scan"
+    where
+      "family_pet_scan"."assetId" = "asset"."id"
+      and "family_pet_scan"."modelVersion" = $3
+  )
+order by
+  "asset"."createdAt" asc
+limit
+  $4
+
+-- FamilyRepository.getAssetForPetScan
+select
+  "asset"."id",
+  "asset"."ownerId",
+  "preview"."path" as "previewPath"
+from
+  "asset"
+  inner join "family_member" on "family_member"."userId" = "asset"."ownerId"
+  and "family_member"."familyId" = $1
+  inner join lateral (
+    select
+      "asset_file"."path"
+    from
+      "asset_file"
+    where
+      "asset_file"."assetId" = "asset"."id"
+      and "asset_file"."type" = 'preview'
+    order by
+      "asset_file"."isEdited" desc
+    limit
+      $2
+  ) as "preview" on true
+where
+  "asset"."id" = $3
+  and "asset"."deletedAt" is null
+  and "asset"."visibility" != 'hidden'
+
+-- FamilyRepository.getPetFaces
+select
+  "asset_face"."id",
+  "asset_face"."personGroupId",
+  "asset_face"."boundingBoxX1",
+  "asset_face"."boundingBoxY1",
+  "asset_face"."boundingBoxX2",
+  "asset_face"."boundingBoxY2",
+  "asset_face"."imageWidth",
+  "asset_face"."imageHeight"
+from
+  "asset_face"
+where
+  "asset_face"."assetId" = $1
+  and "asset_face"."sourceType" = 'pet'
+
+-- FamilyRepository.getPetFaceForGrouping
+select
+  "asset_face"."id",
+  "asset_face"."personGroupId",
+  "asset"."ownerId",
+  "user"."clusterGroupId",
+  "face_search"."embedding"
+from
+  "asset_face"
+  inner join "asset" on "asset"."id" = "asset_face"."assetId"
+  inner join "user" on "user"."id" = "asset"."ownerId"
+  inner join "face_search" on "face_search"."faceId" = "asset_face"."id"
+where
+  "asset_face"."id" = $1
+  and "asset_face"."sourceType" = 'pet'
+  and "asset_face"."deletedAt" is null
+
+-- FamilyRepository.getUngroupedPetFaceIds
+select
+  "asset_face"."id"
+from
+  "asset_face"
+  inner join "asset" on "asset"."id" = "asset_face"."assetId"
+  inner join "family_member" on "family_member"."userId" = "asset"."ownerId"
+  and "family_member"."familyId" = $1
+where
+  "asset_face"."sourceType" = 'pet'
+  and "asset_face"."personGroupId" is null
+  and "asset_face"."deletedAt" is null
+  and "asset"."deletedAt" is null
+order by
+  "asset"."fileCreatedAt" asc

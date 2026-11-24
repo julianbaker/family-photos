@@ -3,7 +3,7 @@ import { Insertable, Kysely, Updateable, sql } from 'kysely';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { InjectKysely } from 'nestjs-kysely';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
-import { AlbumUserRole } from 'src/enum.js';
+import { AlbumUserRole, AssetFileType, AssetVisibility, SourceType } from 'src/enum.js';
 import { FamilyInviteRequestStatus, FamilyRole } from 'src/family/family.enum.js';
 import { FamilyCommentTable } from 'src/family/schema/family-comment.table.js';
 import { FamilyHistoryTable } from 'src/family/schema/family-history.table.js';
@@ -475,6 +475,17 @@ export class FamilyRepository {
           .where('asset_face.isVisible', '=', true)
           .as('faceCount'),
       )
+      .select((eb) =>
+        eb
+          .exists(
+            eb
+              .selectFrom('asset_face')
+              .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
+              .where('asset_face.sourceType', '=', sql.lit(SourceType.Pet))
+              .where('asset_face.deletedAt', 'is', null),
+          )
+          .as('hasPetFaces'),
+      )
       .where('family_person.familyId', '=', familyId)
       .orderBy('family_person.name', 'asc')
       .execute();
@@ -698,5 +709,152 @@ export class FamilyRepository {
       from "family" f where f."id" = ${familyId}
     `.execute(this.db);
     return rows[0];
+  }
+
+  // pets (family/pets)
+
+  /**
+  Photos of the family's members that pet recognition hasn't looked at with these models yet: not
+  deleted or hidden, with a preview to look at. Oldest first, a batch at a time.
+  */
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.STRING, 10] })
+  getAssetsForPetScan(familyId: string, modelVersion: string, limit: number) {
+    return this.db
+      .selectFrom('asset')
+      .innerJoin('family_member', (join) =>
+        join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
+      )
+      // the same preview face detection uses (an edited one first), so boxes and thumbnails line up
+      .innerJoinLateral(
+        (eb) =>
+          eb
+            .selectFrom('asset_file')
+            .select('asset_file.path')
+            .whereRef('asset_file.assetId', '=', 'asset.id')
+            .where('asset_file.type', '=', sql.lit(AssetFileType.Preview))
+            .orderBy('asset_file.isEdited', 'desc')
+            .limit(1)
+            .as('preview'),
+        (join) => join.onTrue(),
+      )
+      .select(['asset.id', 'asset.ownerId', 'preview.path as previewPath'])
+      .where('asset.deletedAt', 'is', null)
+      .where('asset.visibility', '!=', sql.lit(AssetVisibility.Hidden))
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('family_pet_scan')
+              .whereRef('family_pet_scan.assetId', '=', 'asset.id')
+              .where('family_pet_scan.modelVersion', '=', modelVersion),
+          ),
+        ),
+      )
+      .orderBy('asset.createdAt', 'asc')
+      .limit(limit)
+      .execute();
+  }
+
+  /** One photo, if it belongs to a member of the family, with its preview and current pet faces. */
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
+  getAssetForPetScan(familyId: string, assetId: string) {
+    return this.db
+      .selectFrom('asset')
+      .innerJoin('family_member', (join) =>
+        join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
+      )
+      // the same preview face detection uses (an edited one first), so boxes and thumbnails line up
+      .innerJoinLateral(
+        (eb) =>
+          eb
+            .selectFrom('asset_file')
+            .select('asset_file.path')
+            .whereRef('asset_file.assetId', '=', 'asset.id')
+            .where('asset_file.type', '=', sql.lit(AssetFileType.Preview))
+            .orderBy('asset_file.isEdited', 'desc')
+            .limit(1)
+            .as('preview'),
+        (join) => join.onTrue(),
+      )
+      .select(['asset.id', 'asset.ownerId', 'preview.path as previewPath'])
+      .where('asset.id', '=', assetId)
+      .where('asset.deletedAt', 'is', null)
+      .where('asset.visibility', '!=', sql.lit(AssetVisibility.Hidden))
+      .executeTakeFirst();
+  }
+
+  @GenerateSql({ params: [DummyValue.UUID] })
+  getPetFaces(assetId: string) {
+    return this.db
+      .selectFrom('asset_face')
+      .select([
+        'asset_face.id',
+        'asset_face.personGroupId',
+        'asset_face.boundingBoxX1',
+        'asset_face.boundingBoxY1',
+        'asset_face.boundingBoxX2',
+        'asset_face.boundingBoxY2',
+        'asset_face.imageWidth',
+        'asset_face.imageHeight',
+      ])
+      .where('asset_face.assetId', '=', assetId)
+      .where('asset_face.sourceType', '=', sql.lit(SourceType.Pet))
+      .execute();
+  }
+
+  /** A rescanned pet keeps its face (and its pet); only the identity numbers are replaced. */
+  replaceFaceEmbedding(faceId: string, embedding: string) {
+    return this.db
+      .insertInto('face_search')
+      .values({ faceId, embedding })
+      .onConflict((oc) => oc.column('faceId').doUpdateSet({ embedding }))
+      .execute();
+  }
+
+  markPetScanned(assetId: string, modelVersion: string) {
+    return this.db
+      .insertInto('family_pet_scan')
+      .values({ assetId, modelVersion, scannedAt: new Date() })
+      .onConflict((oc) => oc.column('assetId').doUpdateSet({ modelVersion, scannedAt: new Date() }))
+      .execute();
+  }
+
+  /** A pet face with what grouping needs: its embedding, owner, cluster group and the photo's date. */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  getPetFaceForGrouping(faceId: string) {
+    return this.db
+      .selectFrom('asset_face')
+      .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+      .innerJoin('user', 'user.id', 'asset.ownerId')
+      .innerJoin('face_search', 'face_search.faceId', 'asset_face.id')
+      .select([
+        'asset_face.id',
+        'asset_face.personGroupId',
+        'asset.ownerId',
+        'user.clusterGroupId',
+        'face_search.embedding',
+      ])
+      .where('asset_face.id', '=', faceId)
+      .where('asset_face.sourceType', '=', sql.lit(SourceType.Pet))
+      .where('asset_face.deletedAt', 'is', null)
+      .executeTakeFirst();
+  }
+
+  /** Pet faces in the family's photos that no pet has claimed yet. */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  getUngroupedPetFaceIds(familyId: string) {
+    return this.db
+      .selectFrom('asset_face')
+      .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+      .innerJoin('family_member', (join) =>
+        join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
+      )
+      .select('asset_face.id')
+      .where('asset_face.sourceType', '=', sql.lit(SourceType.Pet))
+      .where('asset_face.personGroupId', 'is', null)
+      .where('asset_face.deletedAt', 'is', null)
+      .where('asset.deletedAt', 'is', null)
+      .orderBy('asset.fileCreatedAt', 'asc')
+      .execute();
   }
 }

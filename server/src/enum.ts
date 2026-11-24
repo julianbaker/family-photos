@@ -455,6 +455,8 @@ export enum SourceType {
   MachineLearning = 'machine-learning',
   Exif = 'exif',
   Manual = 'manual',
+  // family fork: a dog or cat found by sibred's pet recognition (family/pets); never mixed with faces
+  Pet = 'pet',
 }
 
 export const SourceTypeSchema = z.enum(SourceType).describe('Face detection source type').meta({ id: 'SourceType' });

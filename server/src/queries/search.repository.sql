@@ -276,17 +276,18 @@ with
           "user"."clusterGroupId" = $2
       )
       and "asset"."deletedAt" is null
+      and "asset_face"."sourceType" != $3
     order by
       "distance"
     limit
-      $3
+      $4
   )
 select
   *
 from
   "cte"
 where
-  "cte"."distance" <= $4
+  "cte"."distance" <= $5
 rollback
 
 -- SearchRepository.searchPlaces

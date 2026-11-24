@@ -25021,6 +25021,15 @@
             ],
             "nullable": true
           },
+          "kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FamilyPersonKind"
+              }
+            ],
+            "description": "Set by hand; null means worked out from the photos",
+            "nullable": true
+          },
           "name": {
             "maxLength": 200,
             "minLength": 1,
@@ -25031,6 +25040,14 @@
           "name"
         ],
         "type": "object"
+      },
+      "FamilyPersonKind": {
+        "description": "A person, or a pet (a dog or cat, found by pet recognition or added by hand)",
+        "enum": [
+          "person",
+          "pet"
+        ],
+        "type": "string"
       },
       "FamilyPersonResponseDto": {
         "properties": {
@@ -25066,6 +25083,9 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
             "type": "string"
           },
+          "kind": {
+            "$ref": "#/components/schemas/FamilyPersonKind"
+          },
           "linkedUserId": {
             "description": "The member account this person is",
             "format": "uuid",
@@ -25093,6 +25113,7 @@
           "faceCount",
           "gender",
           "id",
+          "kind",
           "linkedUserId",
           "name",
           "relationToMe"
@@ -25127,6 +25148,15 @@
                 "$ref": "#/components/schemas/FamilyGender"
               }
             ],
+            "nullable": true
+          },
+          "kind": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FamilyPersonKind"
+              }
+            ],
+            "description": "Set by hand; null means worked out from the photos",
             "nullable": true
           },
           "linkedUserId": {
@@ -32274,7 +32304,8 @@
         "enum": [
           "machine-learning",
           "exif",
-          "manual"
+          "manual",
+          "pet"
         ],
         "type": "string"
       },

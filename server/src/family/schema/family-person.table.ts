@@ -21,6 +21,7 @@ names. People without photos (ancestors) are person groups with no faces.
 @Table('family_person')
 @UpdatedAtTrigger('family_person_updatedAt')
 @Check({ name: 'family_person_gender_chk', expression: `"gender" IS NULL OR "gender" IN ('female', 'male')` })
+@Check({ name: 'family_person_kind_chk', expression: `"kind" IS NULL OR "kind" IN ('person', 'pet')` })
 @Check({
   name: 'family_person_dates_chk',
   expression: `"deathDate" IS NULL OR "birthDate" IS NULL OR "deathDate" >= "birthDate"`,
@@ -44,6 +45,13 @@ export class FamilyPersonTable {
   /** Optional; only used for relation words like "grandmother" instead of "grandparent". */
   @Column({ type: 'character varying', nullable: true })
   gender!: string | null;
+
+  /**
+  "person" or "pet", when set by hand (a pet with no photos); null means worked out from the faces: a
+  group whose faces were found by pet recognition is a pet.
+  */
+  @Column({ type: 'character varying', nullable: true })
+  kind!: string | null;
 
   /** Simple formatting: paragraphs, **bold**, *italic* and [links](https://...). */
   @Column({ type: 'text', nullable: true })

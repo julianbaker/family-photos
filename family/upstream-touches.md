@@ -20,6 +20,13 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `server/test/utils.ts`, `server/test/medium.factory.ts`, `server/test/repositories/access.repository.mock.ts` | `FamilyRepository` and `FamilyAccess` in the test factories and mocks | tests construct services with every repository |
 | `open-api/immich-openapi-specs.json` | generated: `/family` endpoints and DTOs (additions only) | regenerated from the server |
 | `server/src/queries/family.repository.sql` (new) | generated SQL for the family repository | upstream CI checks generated query files |
+| `server/src/enum.ts` | `SourceType.Pet` (`pet`) | pet faces found by sibred's pet recognition (`server/src/family/pets/`) |
+| `server/src/repositories/search.repository.ts` | `searchFaces` takes `pets`; pet faces only match pet faces, human faces never match pets | the two kinds of embedding share `face_search` but must never mix |
+| `server/src/services/person.service.ts` | `handleDetectFaces` ignores pet faces when matching new detections | a person's face must never take over a pet's box |
+| `server/src/services/index.ts` | registers `FamilyPetService` | Nest providers |
+| `server/Dockerfile` | `pet-models` stage (models pinned by revision and sha256) copied to `/usr/src/app/sibred-models` | pet recognition runs in the server, no ML image change |
+| `server/package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` | `onnxruntime-node` dependency; its CUDA-download install script disabled | runs the pet models; the CPU runtime ships in the package |
+| `.gitignore` | `sibred-models` | local copies of the models for development |
 
 ## Rules for merging upstream
 - Keep every `// family fork` line. In positional lists (`BASE_SERVICE_DEPENDENCIES`, the `BaseService` constructor, `BaseService.create`, `test/utils.ts`) the family entries stay **last**.

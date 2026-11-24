@@ -33,7 +33,7 @@ import { FamilyRelationTable } from 'src/family/schema/family-relation.table.js'
 import type { ArgOf } from 'src/repositories/event.repository.js';
 import { BaseService } from 'src/services/base.service.js';
 
-type PersonRow = Selectable<FamilyPersonTable> & { faceCount?: number | string | null };
+type PersonRow = Selectable<FamilyPersonTable> & { faceCount?: number | string | null; hasPetFaces?: boolean | number | null };
 
 /** 'YYYY-MM-DD' from a date column, whatever form the driver returns it in. */
 export const toDateString = (value: unknown): string | null => {
@@ -104,6 +104,7 @@ export class FamilyPeopleService extends BaseService {
         deathDate: dto.deathDate ?? null,
         gender: dto.gender ?? null,
         bio: dto.bio ?? null,
+        kind: dto.kind ?? null,
         updatedById: auth.user.id,
       },
     );
@@ -135,6 +136,7 @@ export class FamilyPeopleService extends BaseService {
         deathDate: dto.deathDate,
         gender: dto.gender,
         bio: dto.bio,
+        kind: dto.kind,
         linkedUserId: dto.linkedUserId,
       }).filter(([, value]) => value !== undefined),
     );
@@ -597,6 +599,8 @@ export class FamilyPeopleService extends BaseService {
       bio: person.bio,
       linkedUserId: person.linkedUserId,
       faceCount: Number(person.faceCount ?? 0),
+      // set by hand, or a pet because pet recognition found its photos
+      kind: person.kind === 'pet' || person.kind === 'person' ? person.kind : person.hasPetFaces ? 'pet' : 'person',
       relationToMe,
     };
   }

@@ -6,7 +6,7 @@
   import { bySurname, lifespan } from '#lib/family/format.ts';
   import { Route } from '#lib/route.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
-  import { createFamilyPerson } from '@immich/sdk';
+  import { createFamilyPerson, FamilyPersonKind, type FamilyPersonResponseDto } from '@immich/sdk';
   import { Alert, Button, Field, Input, Stack, Text } from '@immich/ui';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
@@ -17,6 +17,7 @@
 
   let search = $state('');
   let newName = $state('');
+  let newKind = $state<FamilyPersonKind>(FamilyPersonKind.Person);
   let adding = $state(false);
 
   onMount(() => void familyState.load());
@@ -24,8 +25,20 @@
   const people = $derived(
     (data.people ?? []).filter((person) => person.name.toLowerCase().includes(search.trim().toLowerCase())),
   );
-  const named = $derived(people.filter((person) => person.name).sort(bySurname));
-  const unnamedCount = $derived(people.length - named.length);
+  const named = $derived(
+    people.filter((person) => person.name && person.kind === FamilyPersonKind.Person).sort(bySurname),
+  );
+  const unnamedCount = $derived(
+    people.filter((person) => !person.name && person.kind === FamilyPersonKind.Person).length,
+  );
+  // pets found by pet recognition start without a name; show them so someone can name them
+  const pets = $derived(
+    (data.people ?? [])
+      .filter((person) => person.kind === FamilyPersonKind.Pet)
+      .filter((person) => !search.trim() || person.name.toLowerCase().includes(search.trim().toLowerCase()))
+      .sort((a, b) => (a.name && b.name ? a.name.localeCompare(b.name) : a.name ? -1 : b.name ? 1 : b.faceCount - a.faceCount)),
+  );
+  const petLabel = (pet: FamilyPersonResponseDto) => pet.name || 'Name this pet';
 
   const onAdd = async (event: Event) => {
     event.preventDefault();
@@ -34,7 +47,7 @@
     }
     adding = true;
     try {
-      const person = await createFamilyPerson({ familyPersonCreateDto: { name: newName.trim() } });
+      const person = await createFamilyPerson({ familyPersonCreateDto: { name: newName.trim(), kind: newKind } });
       await goto(Route.familyPerson({ id: person.id }));
     } catch (error) {
       handleError(error, 'Could not add the person');
@@ -79,6 +92,28 @@
         {/each}
       </ul>
 
+      {#if pets.length > 0}
+        <section class="flex flex-col gap-3">
+          <Text size="large" fontWeight="semi-bold">Pets</Text>
+          <ul class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {#each pets as pet (pet.id)}
+              <li>
+                <a
+                  href={Route.familyPerson({ id: pet.id })}
+                  class="flex flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  <FamilyFace id={pet.id} name={pet.name} hasPhotos={pet.faceCount > 0} />
+                  <Text fontWeight="semi-bold" color={pet.name ? undefined : 'primary'}>{petLabel(pet)}</Text>
+                  <Text size="tiny" color="muted">
+                    {pet.faceCount === 1 ? '1 photo' : `${pet.faceCount} photos`}{lifespan(pet) ? ` · ${lifespan(pet)}` : ''}
+                  </Text>
+                </a>
+              </li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+
       {#if unnamedCount > 0}
         <Text size="small" color="muted">
           {unnamedCount} more {unnamedCount === 1 ? 'person has' : 'people have'} no name yet. Name and merge faces on the
@@ -92,10 +127,18 @@
             <Stack gap={3}>
               <Text fontWeight="semi-bold">Add someone without photos</Text>
               <Text size="small" color="muted"
-                >For example a grandparent or great-grandparent, so they can be in the tree.</Text
+                >For example a grandparent or great-grandparent, or a much-loved dog, so they can be in the tree.</Text
               >
               <div class="flex flex-wrap gap-2">
                 <div class="min-w-60 flex-1"><Input bind:value={newName} placeholder="Their name" /></div>
+                <select
+                  bind:value={newKind}
+                  aria-label="Person or pet"
+                  class="rounded-xl border border-gray-300 bg-white px-3 text-sm dark:border-gray-600 dark:bg-gray-800"
+                >
+                  <option value={FamilyPersonKind.Person}>Person</option>
+                  <option value={FamilyPersonKind.Pet}>Pet</option>
+                </select>
                 <Button type="submit" shape="round" loading={adding} disabled={!newName.trim()}>Add</Button>
               </div>
             </Stack>

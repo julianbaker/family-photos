@@ -88,6 +88,18 @@ RUN --mount=type=cache,id=pnpm,target=/buildcache/pnpm-store \
   --mount=type=cache,id=mise-tools-${TARGETPLATFORM},target=/buildcache/mise \
   mise //:plugins
 
+# family fork: pet recognition models (family/pets), pinned to exact revisions and checked by sha256
+FROM builder AS pet-models
+WORKDIR /models
+RUN wget -q --tries=5 -O pet-detector-rfdetr-medium.onnx \
+    https://huggingface.co/onnx-community/rfdetr_medium-ONNX/resolve/8553cefdd984bbaeb9d9ca8743d6a6a1c3e29dce/onnx/model.onnx && \
+  wget -q --tries=5 -O pet-recognition-base.onnx \
+    https://huggingface.co/open-noodle/pet-recognition-base/resolve/fa30eb7785ceb764d5c2840c4585fb89821be385/recognition/model.onnx && \
+  printf '%s  %s\n' \
+    768928acf337ac86d069c9d55a929e11e563c1e1d272a3ffc9366248d66b2654 pet-detector-rfdetr-medium.onnx \
+    8691f5f6d0cebbd1602d21def63a34f7a58f78e08b3d4914cb81adcc2efd83f8 pet-recognition-base.onnx \
+    | sha256sum -c -
+
 FROM ghcr.io/immich-app/base-server-prod:202610291416@sha256:6211bec52cbccc19076889b0c39ef473a1a1d02ceb635ccd2e0ecb4683e5fd4d
 
 WORKDIR /usr/src/app
@@ -96,6 +108,8 @@ ENV NODE_ENV=production \
   NVIDIA_VISIBLE_DEVICES=all
 
 COPY --from=server /output/server-pruned ./server
+# family fork: pet recognition models
+COPY --from=pet-models /models ./sibred-models
 COPY --from=web /usr/src/app/web/build /build/www
 COPY --from=cli /output/cli-pruned ./cli
 COPY --from=plugins /usr/src/app/packages/plugin-core/dist /build/plugins/immich-plugin-core/dist

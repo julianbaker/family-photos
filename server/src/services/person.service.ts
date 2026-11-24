@@ -427,8 +427,10 @@ export class PersonService extends BaseService {
       }
     }
 
+    // family fork: pets found by sibred's pet recognition are not faces; never match a face to one
+    const humanFaces = asset.faces.filter((face) => face.sourceType !== SourceType.Pet);
     for (const { boundingBox, embedding } of faces) {
-      const matches = asset.faces.filter((face) => this.iou(face, boundingBox, imageWidth, imageHeight) > 0.5);
+      const matches = humanFaces.filter((face) => this.iou(face, boundingBox, imageWidth, imageHeight) > 0.5);
       // prefer metadata faces over machine learning duplicates
       const match = matches.find((face) => face.sourceType !== SourceType.MachineLearning) ?? matches[0];
 

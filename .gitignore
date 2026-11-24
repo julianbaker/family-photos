@@ -33,3 +33,6 @@ misc/release/notes.md
 # family fork: local build logs
 .family-build/
 internal/
+
+# family fork: pet recognition models (downloaded by server/Dockerfile; local copies for dev)
+sibred-models

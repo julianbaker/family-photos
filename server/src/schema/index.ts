@@ -58,6 +58,7 @@ import { FamilyInviteTable } from 'src/family/schema/family-invite.table.js';
 import { FamilyCommentTable } from 'src/family/schema/family-comment.table.js';
 import { FamilyMemberTable } from 'src/family/schema/family-member.table.js';
 import { FamilyPersonTable } from 'src/family/schema/family-person.table.js';
+import { FamilyPetScanTable } from 'src/family/schema/family-pet-scan.table.js';
 import { FamilyRelationTable } from 'src/family/schema/family-relation.table.js';
 import { FamilyTable } from 'src/family/schema/family.table.js';
 import { ClusterGroupRequestTable } from 'src/schema/tables/cluster-group-request.table.js';
@@ -145,6 +146,7 @@ export class ImmichDatabase {
     FamilyInviteUseTable,
     FamilyInviteRequestTable,
     FamilyPersonTable,
+    FamilyPetScanTable,
     FamilyRelationTable,
     FamilyCommentTable,
     FaceSearchTable,
@@ -306,6 +308,7 @@ export interface DB {
   family_invite_use: FamilyInviteUseTable;
   family_invite_request: FamilyInviteRequestTable;
   family_person: FamilyPersonTable;
+  family_pet_scan: FamilyPetScanTable;
   family_relation: FamilyRelationTable;
   family_comment: FamilyCommentTable;
 
