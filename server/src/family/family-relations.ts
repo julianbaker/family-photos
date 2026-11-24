@@ -31,7 +31,8 @@ export type StoredRelation = {
   label: string | null;
 };
 
-export type RelationPerson = { id: string; gender: Gender };
+/** `pet`: a dog or cat. Pets hang from their owners (a parent relation) but never link people together. */
+export type RelationPerson = { id: string; gender: Gender; pet?: boolean };
 
 /** How `to` is related to `from`, e.g. { key: 'grandparent', label: 'grandmother' }. */
 export type Relationship = { key: string; label: string };
@@ -62,6 +63,14 @@ const WORDS: Record<string, [female: string, male: string, neutral: string]> = {
   'adopted-child': ['adopted daughter', 'adopted son', 'adopted child'],
   godparent: ['godmother', 'godfather', 'godparent'],
   godchild: ['goddaughter', 'godson', 'godchild'],
+};
+
+/** Two people with the same relationship, in one word: "grandparents", "aunt and uncle". */
+const plural = (key: string, labels: string[]) => {
+  if (key.endsWith('grandparent') || key === 'parent' || key.endsWith('grandchild') || key === 'child') {
+    return `${greats(key.split('great-').length - 1)}${word(key.replace(/^(great-)+/, ''), null)}s`;
+  }
+  return [...new Set(labels)].join(' and ');
 };
 
 const word = (key: string, gender: Gender) => {
@@ -143,6 +152,8 @@ export class FamilyGraph {
   /** explicit sibling groups share a virtual parent, so their families link up even without parents */
   private virtualParent = new Map<string, string>();
   private ancestorCache = new Map<string, Map<string, number>>();
+  /** pet -> its owners (people recorded as its parents) */
+  private petOwners = new Map<string, Set<string>>();
 
   constructor(people: RelationPerson[], relations: StoredRelation[]) {
     for (const person of people) {
@@ -151,6 +162,13 @@ export class FamilyGraph {
 
     for (const relation of relations) {
       const { personId: a, relatedPersonId: b, qualifier } = relation;
+      // a pet's relations only say who its owners are; they never make people relatives of each other
+      if (this.isPet(a) || this.isPet(b)) {
+        if (relation.type === RelationType.Parent && this.isPet(b) && !this.isPet(a)) {
+          addSet(this.petOwners, b, a);
+        }
+        continue;
+      }
       switch (relation.type) {
         case RelationType.Parent: {
           if (qualifier === RelationQualifier.Step) {
@@ -308,6 +326,12 @@ export class FamilyGraph {
     if (from === to) {
       return { key: 'self', label: 'self' };
     }
+    if (this.isPet(to)) {
+      return this.petRelationship(from, to);
+    }
+    if (this.isPet(from)) {
+      return this.ownerSideRelationship(from, to);
+    }
 
     const spouseQualifier = this.spouses.get(from)?.get(to);
     if (spouseQualifier !== undefined) {
@@ -431,6 +455,46 @@ export class FamilyGraph {
       }
     }
     return result;
+  }
+
+  isPet(id: string): boolean {
+    return this.people.get(id)?.pet === true;
+  }
+
+  /** A pet, seen by someone: "pet" to its owners, else through them ("grandmother's pet"). */
+  private petRelationship(from: string, pet: string): Relationship | null {
+    const owners = [...(this.petOwners.get(pet) ?? [])];
+    if (owners.includes(from)) {
+      return { key: 'pet', label: 'pet' };
+    }
+    const through = owners
+      .map((owner) => this.relationship(from, owner))
+      .filter((relationship): relationship is Relationship => relationship !== null);
+    if (through.length === 0) {
+      return null;
+    }
+    // both owners the same to you (your grandparents): one plural word; else the first owner's
+    const sameKey = through.length > 1 && through.every((relationship) => relationship.key === through[0].key);
+    const owner = sameKey ? plural(through[0].key, through.map((relationship) => relationship.label)) : through[0].label;
+    const whose = owner.endsWith('s') ? `${owner}'` : `${owner}'s`;
+    return { key: 'pet', label: `${whose} pet` };
+  }
+
+  /** Someone, seen from a pet's page: its "owner", or the owner's relative ("owner's son"). */
+  private ownerSideRelationship(pet: string, to: string): Relationship | null {
+    const owners = [...(this.petOwners.get(pet) ?? [])];
+    if (owners.includes(to)) {
+      return { key: 'owner', label: 'owner' };
+    }
+    for (const owner of owners) {
+      const relationship = this.relationship(owner, to);
+      if (relationship && relationship.key !== 'self') {
+        return relationship.key === 'pet'
+          ? { key: 'pet', label: "owner's pet" }
+          : { key: 'owner-relative', label: `owner's ${relationship.label}` };
+      }
+    }
+    return null;
   }
 
   /** People who are `key` to `from`, e.g. all of someone's children or grandparents. */

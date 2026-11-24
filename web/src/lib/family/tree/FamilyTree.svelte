@@ -6,6 +6,7 @@
   import { Route } from '#lib/route.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
   import {
+    FamilyPersonKind,
     deleteFamilyRelation,
     updateFamilyPerson,
     type FamilyPersonResponseDto,
@@ -33,7 +34,12 @@
 
   const byId = $derived(new Map(people.map((person) => [person.id, person])));
   const graph = $derived(buildGraph(people, relations));
-  const layout = $derived(layoutTree(graph, focusId, { editable: canEdit }));
+  // pets hang from their owners; they get no father, mother or partner slots
+  const layout = $derived.by(() => {
+    const full = layoutTree(graph, focusId, { editable: canEdit });
+    const isPet = (id: string) => people.find((person) => person.id === id)?.kind === FamilyPersonKind.Pet;
+    return { ...full, tiles: full.tiles.filter((tile) => tile.kind !== 'add' || !isPet(tile.forId)) };
+  });
   const focus = $derived(byId.get(focusId));
 
   // ---- camera: the canvas is translated and scaled; (0, 0) in tree space is the focused person

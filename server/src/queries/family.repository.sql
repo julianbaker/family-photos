@@ -514,6 +514,47 @@ from
 where
   f."id" = $1
 
+-- FamilyRepository.getPeopleWithoutCover
+select
+  "person"."ownerId",
+  "person"."personGroupId",
+  "cover"."faceId"
+from
+  "person"
+  inner join "family_person" on "family_person"."personGroupId" = "person"."personGroupId"
+  inner join lateral (
+    select
+      "asset_face"."id" as "faceId"
+    from
+      "asset_face"
+      inner join "asset" on "asset"."id" = "asset_face"."assetId"
+    where
+      "asset_face"."personGroupId" = "person"."personGroupId"
+      and "asset_face"."deletedAt" is null
+      and "asset_face"."isVisible" = $1
+      and "asset"."deletedAt" is null
+      and "asset"."visibility" != 'hidden'
+    order by
+      (
+        "asset_face"."boundingBoxX2" - "asset_face"."boundingBoxX1"
+      ) * (
+        "asset_face"."boundingBoxY2" - "asset_face"."boundingBoxY1"
+      ) desc
+    limit
+      $2
+  ) as "cover" on true
+where
+  "family_person"."familyId" = $3
+  and "person"."faceAssetId" is null
+  and not exists (
+    select
+    from
+      "person" as "covered"
+    where
+      "covered"."personGroupId" = "person"."personGroupId"
+      and "covered"."faceAssetId" is not null
+  )
+
 -- FamilyRepository.getAssetsForPetScan
 select
   "asset"."id",

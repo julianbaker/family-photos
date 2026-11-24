@@ -711,6 +711,62 @@ export class FamilyRepository {
     return rows[0];
   }
 
+  /**
+  Members' records of the family's people that have photos but no cover face (a merge kept a record
+  that had none), each with the face to use: the largest one on a photo that isn't hidden or deleted.
+  */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  getPeopleWithoutCover(familyId: string, personGroupId?: string) {
+    return this.db
+      .selectFrom('person')
+      .innerJoin('family_person', 'family_person.personGroupId', 'person.personGroupId')
+      .innerJoinLateral(
+        (eb) =>
+          eb
+            .selectFrom('asset_face')
+            .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+            .select('asset_face.id as faceId')
+            .whereRef('asset_face.personGroupId', '=', 'person.personGroupId')
+            .where('asset_face.deletedAt', 'is', null)
+            .where('asset_face.isVisible', '=', true)
+            .where('asset.deletedAt', 'is', null)
+            .where('asset.visibility', '!=', sql.lit(AssetVisibility.Hidden))
+            .orderBy(
+              sql`("asset_face"."boundingBoxX2" - "asset_face"."boundingBoxX1") * ("asset_face"."boundingBoxY2" - "asset_face"."boundingBoxY1")`,
+              'desc',
+            )
+            .limit(1)
+            .as('cover'),
+        (join) => join.onTrue(),
+      )
+      .select(['person.ownerId', 'person.personGroupId', 'cover.faceId'])
+      .where('family_person.familyId', '=', familyId)
+      .$if(!!personGroupId, (qb) => qb.where('person.personGroupId', '=', personGroupId!))
+      .where('person.faceAssetId', 'is', null)
+      // members' mirrored copies have no cover by design and borrow anyone's picture; only a group
+      // nobody has a cover for has no picture at all
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('person as covered')
+              .whereRef('covered.personGroupId', '=', 'person.personGroupId')
+              .where('covered.faceAssetId', 'is not', null),
+          ),
+        ),
+      )
+      .execute();
+  }
+
+  setPersonCover(ownerId: string, personGroupId: string, faceId: string) {
+    return this.db
+      .updateTable('person')
+      .set({ faceAssetId: faceId })
+      .where('person.ownerId', '=', ownerId)
+      .where('person.personGroupId', '=', personGroupId)
+      .execute();
+  }
+
   // pets (family/pets)
 
   /**

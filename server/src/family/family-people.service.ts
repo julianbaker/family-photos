@@ -298,8 +298,26 @@ export class FamilyPeopleService extends BaseService {
   /** Called by the stock merge when it has finished: copies the merged person to every member. */
   async afterStockMerge(auth: AuthDto, targetId: string) {
     const membership = await this.familyRepository.getMembership(auth.user.id);
-    if (membership) {
-      await this.familyRepository.mirrorFamilyPeople(membership.familyId, targetId);
+    if (!membership) {
+      return;
+    }
+
+    await this.familyRepository.mirrorFamilyPeople(membership.familyId, targetId);
+    await this.repairCovers(membership.familyId, targetId);
+  }
+
+  /**
+  Gives a face picture to anyone who has photos but no cover face: merging into a record that had no
+  photos (an accidental duplicate) keeps that record, so the merged photos arrive without a cover.
+  */
+  async repairCovers(familyId: string, personGroupId?: string) {
+    const missing = await this.familyRepository.getPeopleWithoutCover(familyId, personGroupId);
+    for (const { ownerId, personGroupId: groupId, faceId } of missing) {
+      await this.familyRepository.setPersonCover(ownerId, groupId, faceId);
+      await this.jobRepository.queue({ name: JobName.PersonGenerateThumbnail, data: { ownerId, personGroupId: groupId } });
+    }
+    if (missing.length > 0) {
+      this.logger.log(`Gave ${missing.length} family people records a cover face`);
     }
   }
 
@@ -478,6 +496,7 @@ export class FamilyPeopleService extends BaseService {
   async reconcile(familyId: string) {
     await this.familyRepository.seedFamilyPeople(familyId);
     await this.familyRepository.mirrorFamilyPeople(familyId);
+    await this.repairCovers(familyId);
   }
 
   @OnEvent({ name: 'AppBootstrap', workers: [ImmichWorker.Api] })
@@ -560,7 +579,11 @@ export class FamilyPeopleService extends BaseService {
       this.familyRepository.getRelations(familyId),
     ]);
     return new FamilyGraph(
-      people.map((person) => ({ id: person.personGroupId, gender: (person.gender as Gender) ?? null })),
+      people.map((person) => ({
+        id: person.personGroupId,
+        gender: (person.gender as Gender) ?? null,
+        pet: person.kind === 'pet' || (person.kind === null && !!person.hasPetFaces),
+      })),
       relations.map((relation) => this.toStored(relation)),
     );
   }

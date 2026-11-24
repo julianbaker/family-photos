@@ -236,3 +236,65 @@ describe(validateRelation.name, () => {
     expect(check('otherMum', RelationType.Parent, 'stepSister')).toBeNull();
   });
 });
+
+describe('pets', () => {
+  // gran and grandad's dog Rex, my dog Bo, and Bo's owner's son
+  const petPeople = [
+    { id: 'gran', gender: 'female' as Gender },
+    { id: 'grandad', gender: 'male' as Gender },
+    { id: 'mum', gender: 'female' as Gender },
+    { id: 'me', gender: 'male' as Gender },
+    { id: 'son', gender: 'male' as Gender },
+    { id: 'rex', gender: 'male' as Gender, pet: true },
+    { id: 'bo', gender: 'male' as Gender, pet: true },
+  ];
+  let n = 0;
+  const rel = (personId: string, relatedPersonId: string, type = RelationType.Parent): StoredRelation => ({
+    id: `p${n++}`,
+    personId,
+    relatedPersonId,
+    type,
+    qualifier: null,
+    label: null,
+  });
+  const graph = new FamilyGraph(petPeople, [
+    rel('gran', 'mum'),
+    rel('grandad', 'mum'),
+    rel('mum', 'me'),
+    rel('me', 'son'),
+    rel('gran', 'grandad', RelationType.Spouse),
+    // the dogs are recorded as their owners' children
+    rel('gran', 'rex'),
+    rel('grandad', 'rex'),
+    rel('me', 'bo'),
+    // and a sibling link to a dog, which must not make anyone related through it
+    rel('bo', 'son', RelationType.Sibling),
+  ]);
+
+  it('calls a pet "pet" to its owner, and names it through the owners to everyone else', () => {
+    expect(graph.relationship('me', 'bo')).toEqual({ key: 'pet', label: 'pet' });
+    expect(graph.relationship('me', 'rex')).toEqual({ key: 'pet', label: "grandparents' pet" });
+    expect(graph.relationship('mum', 'rex')).toEqual({ key: 'pet', label: "parents' pet" });
+    expect(graph.relationship('son', 'bo')).toEqual({ key: 'pet', label: "father's pet" });
+  });
+
+  it('never gives a pet a person word like uncle or brother', () => {
+    for (const relative of [...graph.relatives('me'), ...graph.relatives('son')]) {
+      if (relative.personId === 'rex' || relative.personId === 'bo') {
+        expect(relative.key).toBe('pet');
+      }
+    }
+  });
+
+  it('shows its owners and their family from a pet’s page', () => {
+    expect(graph.relationship('bo', 'me')).toEqual({ key: 'owner', label: 'owner' });
+    expect(graph.relationship('bo', 'son')).toEqual({ key: 'owner-relative', label: "owner's son" });
+    expect(graph.relationship('rex', 'mum')).toEqual({ key: 'owner-relative', label: "owner's daughter" });
+  });
+
+  it('never links people together through a pet', () => {
+    const lonely = new FamilyGraph(petPeople, [rel('me', 'bo'), rel('gran', 'bo'), rel('bo', 'son', RelationType.Sibling)]);
+    expect(lonely.relationship('me', 'gran')).toBeNull();
+    expect(lonely.relationship('me', 'son')).toBeNull();
+  });
+});

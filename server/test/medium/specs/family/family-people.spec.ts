@@ -1,5 +1,6 @@
 import { Kysely } from 'kysely';
 import { FamilyPeopleService } from 'src/family/family-people.service.js';
+import { JobName } from 'src/enum.js';
 import { RelationQualifier, RelationType } from 'src/family/family-relations.js';
 import { FamilyRole } from 'src/family/family.enum.js';
 import { FamilyRepository } from 'src/family/family.repository.js';
@@ -8,6 +9,7 @@ import { AccessRepository } from 'src/repositories/access.repository.js';
 import { AlbumRepository } from 'src/repositories/album.repository.js';
 import { ClusterGroupRepository } from 'src/repositories/cluster-group.repository.js';
 import { EventRepository } from 'src/repositories/event.repository.js';
+import { JobRepository } from 'src/repositories/job.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import { PersonRepository } from 'src/repositories/person.repository.js';
 import { StorageRepository } from 'src/repositories/storage.repository.js';
@@ -33,8 +35,10 @@ const setup = () => {
   const people = newMediumService(FamilyPeopleService, {
     database: defaultDatabase,
     real,
-    mock: [LoggingRepository, EventRepository],
+    mock: [LoggingRepository, EventRepository, JobRepository],
   });
+  // a person given a cover face asks for its picture, made by the stock thumbnail job
+  people.ctx.getMock(JobRepository).queue.mockResolvedValue();
   const family = newMediumService(FamilyService, {
     database: defaultDatabase,
     real,
@@ -43,11 +47,18 @@ const setup = () => {
   const stockPeople = newMediumService(PersonService, {
     database: defaultDatabase,
     real,
-    // merging deletes the merged people's face thumbnails
-    mock: [LoggingRepository, EventRepository, StorageRepository],
+    // merging deletes the merged people's face thumbnails, and asks for new ones
+    mock: [LoggingRepository, EventRepository, StorageRepository, JobRepository],
   });
   stockPeople.ctx.getMock(StorageRepository).unlink.mockResolvedValue();
-  return { sut: people.sut, ctx: people.ctx, family: family.sut, stockPeople: stockPeople.sut };
+  stockPeople.ctx.getMock(JobRepository).queue.mockResolvedValue();
+  return {
+    sut: people.sut,
+    ctx: people.ctx,
+    family: family.sut,
+    stockPeople: stockPeople.sut,
+    stockJobs: stockPeople.ctx.getMock(JobRepository),
+  };
 };
 
 type Setup = ReturnType<typeof setup>;
@@ -317,7 +328,7 @@ describe(FamilyPeopleService.name, () => {
   describe('merging', () => {
     it('merges every member’s copy, and keeps details, relations and faces', async () => {
       const setupResult = setup();
-      const { ctx, sut, stockPeople } = setupResult;
+      const { ctx, sut, stockPeople, stockJobs } = setupResult;
       const { admin, member, adminAuth, memberAuth, amyId } = await newFamily(setupResult);
       // the same woman, found twice by face recognition and named by a member
       const twin = await sut.create(memberAuth, { name: 'Amy B', bio: 'Loved the sea.', deathDate: '2020-01-01' });
@@ -380,6 +391,23 @@ describe(FamilyPeopleService.name, () => {
         .where('assetId', 'in', [adminPhoto.id, memberPhoto.id])
         .execute();
       expect(faces).toEqual([{ personGroupId: amyId }, { personGroupId: amyId }]);
+      // Amy had no photos before, so she had no cover face: she gets one from the merged photos, and
+      // her picture is made (an accidental photo-less duplicate kept by a merge still shows a face)
+      const covers = await ctx.database
+        .selectFrom('person')
+        .select(['ownerId', 'faceAssetId'])
+        .where('personGroupId', '=', amyId)
+        .execute();
+      const mergedFaces = await ctx.database.selectFrom('asset_face').select('id').where('personGroupId', '=', amyId).execute();
+      const mergedFaceIds = mergedFaces.map((face) => face.id);
+      expect(covers.length).toBeGreaterThan(0);
+      for (const cover of covers) {
+        expect(mergedFaceIds).toContain(cover.faceAssetId);
+      }
+      expect(stockJobs.queue).toHaveBeenCalledWith({
+        name: JobName.PersonGenerateThumbnail,
+        data: { ownerId: admin.id, personGroupId: amyId },
+      });
       const history = await ctx.database
         .selectFrom('family_history')
         .selectAll()

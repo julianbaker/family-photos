@@ -51,8 +51,9 @@ const setup = () => {
   const people = newMediumService(FamilyPeopleService, {
     database: defaultDatabase,
     real,
-    mock: [LoggingRepository, EventRepository],
+    mock: [LoggingRepository, EventRepository, JobRepository],
   });
+  people.ctx.getMock(JobRepository).queue.mockResolvedValue();
   return { sut: pets.sut, ctx: pets.ctx, family: family.sut, people: people.sut };
 };
 
