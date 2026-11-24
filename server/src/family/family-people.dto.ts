@@ -2,8 +2,13 @@ import { createZodDto } from 'nestjs-zod';
 import z from 'zod';
 import { RelationQualifier, RelationType } from 'src/family/family-relations.js';
 import { isoDatetimeToDate } from 'src/validation.js';
+import { PARTIAL_DATE } from 'src/family/partial-date.js';
 
-const dateOnly = z.iso.date().describe('Date, YYYY-MM-DD');
+
+const dateOnly = z
+  .string()
+  .regex(PARTIAL_DATE)
+  .describe('A date, as much as is known: YYYY, YYYY-MM or YYYY-MM-DD');
 const GenderSchema = z
   .enum(['female', 'male'])
   .describe('Only used for words like "grandmother"')
@@ -29,8 +34,8 @@ const FamilyPersonResponseSchema = z
   .object({
     id: z.uuidv4().describe('Person ID (the person group, same as in /people)'),
     name: z.string(),
-    birthDate: z.string().nullable(),
-    deathDate: z.string().nullable(),
+    birthDate: z.string().nullable().describe('As much as is known: YYYY, YYYY-MM or YYYY-MM-DD'),
+    deathDate: z.string().nullable().describe('As much as is known: YYYY, YYYY-MM or YYYY-MM-DD'),
     gender: GenderSchema.nullable(),
     bio: z.string().nullable(),
     linkedUserId: z.uuidv4().nullable().describe('The member account this person is'),

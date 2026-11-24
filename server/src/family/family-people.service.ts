@@ -30,6 +30,7 @@ import {
 } from 'src/family/family-relations.js';
 import { FamilyHistoryAction, FamilyRole } from 'src/family/family.enum.js';
 import { isFamilyEnabled } from 'src/family/family.flag.js';
+import { ageOnPartial, endOfPeriod, isPartialDate } from 'src/family/partial-date.js';
 import { FamilyMembership } from 'src/family/family.repository.js';
 import { FamilyPersonTable } from 'src/family/schema/family-person.table.js';
 import { FamilyRelationTable } from 'src/family/schema/family-relation.table.js';
@@ -53,22 +54,12 @@ export const toDateString = (value: unknown): string | null => {
   return String(value).slice(0, 10);
 };
 
-/** Age in whole years on `on` (a local date-time); null when the birth date is unknown or after the photo. */
-export const ageOn = (birthDate: string | null, on: unknown): number | null => {
-  if (!birthDate || !on) {
-    return null;
+/** A date as given ('1938', '1938-03' or '1938-03-14'), checked to be real; stored exactly as given. */
+const checkedDate = (which: 'birth' | 'death', value: string | null) => {
+  if (value !== null && !isPartialDate(value)) {
+    throw new BadRequestException(`That ${which} date isn't a real date`);
   }
-  const taken = toDateString(on)!;
-  if (taken < birthDate) {
-    return null;
-  }
-  const [by, bm, bd] = birthDate.split('-').map(Number);
-  const [ty, tm, td] = taken.split('-').map(Number);
-  let age = ty - by;
-  if (tm < bm || (tm === bm && td < bd)) {
-    age--;
-  }
-  return age;
+  return value;
 };
 
 /** Spouse, sibling and friend are stored once, smaller ID first. */
@@ -107,8 +98,8 @@ export class FamilyPeopleService extends BaseService {
       { id: membership.familyId, clusterGroupId: membership.clusterGroupId },
       {
         name: dto.name,
-        birthDate: dto.birthDate ?? null,
-        deathDate: dto.deathDate ?? null,
+        birthDate: checkedDate('birth', dto.birthDate ?? null),
+        deathDate: checkedDate('death', dto.deathDate ?? null),
         gender: dto.gender ?? null,
         bio: dto.bio ?? null,
         kind: dto.kind ?? null,
@@ -130,9 +121,10 @@ export class FamilyPeopleService extends BaseService {
       await this.checkLink(membership, auth, before, dto.linkedUserId);
     }
 
-    const deathDate = dto.deathDate === undefined ? toDateString(before.deathDate) : dto.deathDate;
-    const birthDate = dto.birthDate === undefined ? toDateString(before.birthDate) : dto.birthDate;
-    if (deathDate && birthDate && deathDate < birthDate) {
+    const birthDate = dto.birthDate === undefined ? before.birthDate : checkedDate('birth', dto.birthDate);
+    const deathDate = dto.deathDate === undefined ? before.deathDate : checkedDate('death', dto.deathDate);
+    // "died March 1951" can't be before "born 14 March 1951": compare the last day the death could be
+    if (deathDate && birthDate && endOfPeriod(deathDate) < birthDate) {
       throw new BadRequestException('The date of death is before the birth date');
     }
 
@@ -159,7 +151,7 @@ export class FamilyPeopleService extends BaseService {
     const previous = Object.fromEntries(
       Object.keys(changes).map((key) => {
         const value = before[key as keyof typeof before];
-        return [key, key.endsWith('Date') ? toDateString(value) : value];
+        return [key, value];
       }),
     );
     await this.recordHistory(membership, auth, FamilyHistoryAction.PersonUpdate, id, previous, changes);
@@ -187,7 +179,8 @@ export class FamilyPeopleService extends BaseService {
     if (values.name !== undefined && values.name !== before.name) {
       changes.name = values.name;
     }
-    if (values.birthDate !== undefined && toDateString(values.birthDate) !== toDateString(before.birthDate)) {
+    if (values.birthDate !== undefined && toDateString(values.birthDate) !== before.birthDate) {
+      // the stock screens set an exact day
       changes.birthDate = toDateString(values.birthDate);
     }
     if (Object.keys(changes).length === 0) {
@@ -201,7 +194,7 @@ export class FamilyPeopleService extends BaseService {
       auth,
       FamilyHistoryAction.PersonUpdate,
       id,
-      { name: before.name, birthDate: toDateString(before.birthDate) },
+      { name: before.name, birthDate: before.birthDate },
       changes,
     );
   }
@@ -588,7 +581,7 @@ export class FamilyPeopleService extends BaseService {
       faceId: row.faceId,
       personId: row.personGroupId,
       name: row.name,
-      age: ageOn(toDateString(row.birthDate), row.localDateTime),
+      age: ageOnPartial(row.birthDate, toDateString(row.localDateTime)),
       relationToMe: me ? graph.relationship(me, row.personGroupId) : null,
     }));
   }
@@ -773,8 +766,8 @@ export class FamilyPeopleService extends BaseService {
     return {
       id: person.personGroupId,
       name: person.name,
-      birthDate: toDateString(person.birthDate),
-      deathDate: toDateString(person.deathDate),
+      birthDate: person.birthDate,
+      deathDate: person.deathDate,
       gender: (person.gender as 'female' | 'male' | null) ?? null,
       bio: person.bio,
       linkedUserId: person.linkedUserId,

@@ -328,6 +328,36 @@ describe(FamilyPeopleService.name, () => {
     });
   });
 
+  describe('dates known only in part', () => {
+    it('keeps a year or a month as given, and gives the stock records only exact dates', async () => {
+      const setupResult = setup();
+      const { ctx, sut } = setupResult;
+      const { admin, memberAuth } = await newFamily(setupResult);
+
+      const great = await sut.create(memberAuth, { name: 'Great Gran', birthDate: '1880', deathDate: '1951-03' });
+      expect(great).toEqual(expect.objectContaining({ birthDate: '1880', deathDate: '1951-03' }));
+      // the stock person record has no idea of "just the year": it gets no birth date
+      const stock = await ctx.database
+        .selectFrom('person')
+        .select('birthDate')
+        .where('personGroupId', '=', great.id)
+        .where('ownerId', '=', admin.id)
+        .executeTakeFirst();
+      expect(stock?.birthDate ?? null).toBeNull();
+
+      const exact = await sut.update(memberAuth, great.id, { birthDate: '1880-06-02' });
+      expect(exact.birthDate).toBe('1880-06-02');
+      const back = await sut.update(memberAuth, great.id, { birthDate: '1880-06' });
+      expect(back.birthDate).toBe('1880-06');
+
+      await expect(sut.update(memberAuth, great.id, { birthDate: '1880-02-30' })).rejects.toThrow('real date');
+      // died "March 1951" and born 14 March 1951 is possible (service and database agree)
+      const baby = await sut.create(memberAuth, { name: 'Baby', birthDate: '1951-03-14', deathDate: '1951-03' });
+      expect(baby.deathDate).toBe('1951-03');
+      await expect(sut.update(memberAuth, great.id, { deathDate: '1870' })).rejects.toThrow('before the birth');
+    });
+  });
+
   describe('key photo', () => {
     it('sets the same picture for every member, from a photo the person is in', async () => {
       const setupResult = setup();

@@ -1940,7 +1940,9 @@ export type FamilyMemberUpdateDto = {
 };
 export type FamilyPersonResponseDto = {
     bio: string | null;
+    /** As much as is known: YYYY, YYYY-MM or YYYY-MM-DD */
     birthDate: string | null;
+    /** As much as is known: YYYY, YYYY-MM or YYYY-MM-DD */
     deathDate: string | null;
     /** Photos this person is recognised in */
     faceCount: number;
@@ -1959,9 +1961,9 @@ export type FamilyPersonResponseDto = {
 export type FamilyPersonCreateDto = {
     /** Paragraphs, **bold**, *italic* and [links](https://...) */
     bio?: string | null;
-    /** Date, YYYY-MM-DD */
+    /** A date, as much as is known: YYYY, YYYY-MM or YYYY-MM-DD */
     birthDate?: string | null;
-    /** Date, YYYY-MM-DD */
+    /** A date, as much as is known: YYYY, YYYY-MM or YYYY-MM-DD */
     deathDate?: string | null;
     gender?: (FamilyGender) | null;
     /** Set by hand; null means worked out from the photos */
@@ -1971,9 +1973,9 @@ export type FamilyPersonCreateDto = {
 export type FamilyPersonUpdateDto = {
     /** Paragraphs, **bold**, *italic* and [links](https://...) */
     bio?: string | null;
-    /** Date, YYYY-MM-DD */
+    /** A date, as much as is known: YYYY, YYYY-MM or YYYY-MM-DD */
     birthDate?: string | null;
-    /** Date, YYYY-MM-DD */
+    /** A date, as much as is known: YYYY, YYYY-MM or YYYY-MM-DD */
     deathDate?: string | null;
     gender?: (FamilyGender) | null;
     /** Set by hand; null means worked out from the photos */

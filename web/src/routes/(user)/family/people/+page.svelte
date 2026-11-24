@@ -6,7 +6,7 @@
   import { bySurname, lifespan } from '#lib/family/format.ts';
   import { Route } from '#lib/route.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
-  import { createFamilyPerson, FamilyPersonKind, type FamilyPersonResponseDto } from '@immich/sdk';
+  import { FamilyPersonKind, createFamilyPerson, type FamilyPersonResponseDto } from '@immich/sdk';
   import { Alert, Button, Field, Input, Stack, Text } from '@immich/ui';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
@@ -36,7 +36,9 @@
     (data.people ?? [])
       .filter((person) => person.kind === FamilyPersonKind.Pet)
       .filter((person) => !search.trim() || person.name.toLowerCase().includes(search.trim().toLowerCase()))
-      .sort((a, b) => (a.name && b.name ? a.name.localeCompare(b.name) : a.name ? -1 : b.name ? 1 : b.faceCount - a.faceCount)),
+      .sort((a, b) =>
+        a.name && b.name ? a.name.localeCompare(b.name) : a.name ? -1 : b.name ? 1 : b.faceCount - a.faceCount,
+      ),
   );
   const petLabel = (pet: FamilyPersonResponseDto) => pet.name || 'Name this pet';
 
@@ -105,7 +107,9 @@
                   <FamilyFace id={pet.id} name={pet.name} hasPhotos={pet.faceCount > 0} />
                   <Text fontWeight="semi-bold" color={pet.name ? undefined : 'primary'}>{petLabel(pet)}</Text>
                   <Text size="tiny" color="muted">
-                    {pet.faceCount === 1 ? '1 photo' : `${pet.faceCount} photos`}{lifespan(pet) ? ` · ${lifespan(pet)}` : ''}
+                    {pet.faceCount === 1 ? '1 photo' : `${pet.faceCount} photos`}{lifespan(pet)
+                      ? ` · ${lifespan(pet)}`
+                      : ''}
                   </Text>
                 </a>
               </li>

@@ -3,6 +3,7 @@
   import UserPageLayout from '#lib/components/layouts/UserPageLayout.svelte';
   import AddRelative, { type RelativeKind } from '#lib/family/AddRelative.svelte';
   import FamilyFace from '#lib/family/FamilyFace.svelte';
+  import PartialDateInput from '#lib/family/PartialDateInput.svelte';
   import { renderBio } from '#lib/family/bio.ts';
   import { familyState } from '#lib/family/family-state.svelte.ts';
   import { BROWSE_KEYS, RELATIVE_GROUPS, bySurname, formatDate, lifespan } from '#lib/family/format.ts';
@@ -329,8 +330,8 @@
       <form onsubmit={save} class="flex flex-col gap-4 rounded-xl border p-4 dark:border-gray-700">
         <Field label="Name"><Input bind:value={name} /></Field>
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Field label="Born"><Input type="date" bind:value={birthDate} /></Field>
-          <Field label="Died"><Input type="date" bind:value={deathDate} /></Field>
+          <PartialDateInput label="Born" bind:value={birthDate} />
+          <PartialDateInput label="Died" bind:value={deathDate} />
           <Field label="Gender" description="Only used for words like grandmother">
             <Select
               bind:value={gender}

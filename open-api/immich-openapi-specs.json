@@ -25134,17 +25134,15 @@
             "type": "string"
           },
           "birthDate": {
-            "description": "Date, YYYY-MM-DD",
-            "format": "date",
+            "description": "A date, as much as is known: YYYY, YYYY-MM or YYYY-MM-DD",
             "nullable": true,
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+            "pattern": "^\\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\\d|3[01]))?)?$",
             "type": "string"
           },
           "deathDate": {
-            "description": "Date, YYYY-MM-DD",
-            "format": "date",
+            "description": "A date, as much as is known: YYYY, YYYY-MM or YYYY-MM-DD",
             "nullable": true,
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+            "pattern": "^\\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\\d|3[01]))?)?$",
             "type": "string"
           },
           "gender": {
@@ -25190,10 +25188,12 @@
             "type": "string"
           },
           "birthDate": {
+            "description": "As much as is known: YYYY, YYYY-MM or YYYY-MM-DD",
             "nullable": true,
             "type": "string"
           },
           "deathDate": {
+            "description": "As much as is known: YYYY, YYYY-MM or YYYY-MM-DD",
             "nullable": true,
             "type": "string"
           },
@@ -25268,17 +25268,15 @@
             "type": "string"
           },
           "birthDate": {
-            "description": "Date, YYYY-MM-DD",
-            "format": "date",
+            "description": "A date, as much as is known: YYYY, YYYY-MM or YYYY-MM-DD",
             "nullable": true,
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+            "pattern": "^\\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\\d|3[01]))?)?$",
             "type": "string"
           },
           "deathDate": {
-            "description": "Date, YYYY-MM-DD",
-            "format": "date",
+            "description": "A date, as much as is known: YYYY, YYYY-MM or YYYY-MM-DD",
             "nullable": true,
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+            "pattern": "^\\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\\d|3[01]))?)?$",
             "type": "string"
           },
           "gender": {

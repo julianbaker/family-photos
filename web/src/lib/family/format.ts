@@ -18,8 +18,19 @@ export const lifespan = (person: { birthDate: string | null; deathDate: string |
   return '';
 };
 
-export const formatDate = (date: string | null) =>
-  date ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { dateStyle: 'long' }) : '';
+/** As much as is known: "1938", "March 1938" or "14 March 1938". */
+export const formatDate = (date: string | null) => {
+  if (!date) {
+    return '';
+  }
+  if (date.length === 4) {
+    return date;
+  }
+  if (date.length === 7) {
+    return new Date(`${date}-01T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  }
+  return new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { dateStyle: 'long' });
+};
 
 /** Relation keys grouped for a person's page, closest first. */
 export const RELATIVE_GROUPS: Array<{ title: string; match: (key: string) => boolean }> = [

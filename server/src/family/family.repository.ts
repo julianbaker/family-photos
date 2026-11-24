@@ -430,7 +430,7 @@ export class FamilyRepository {
   async seedFamilyPeople(familyId: string): Promise<void> {
     await sql`
       insert into "family_person" ("personGroupId", "familyId", "name", "birthDate")
-      select distinct on (p."personGroupId") p."personGroupId", f."id", p."name", p."birthDate"
+      select distinct on (p."personGroupId") p."personGroupId", f."id", p."name", to_char(p."birthDate", 'YYYY-MM-DD')
       from "person" p
       join "person_group" pg on pg."id" = p."personGroupId"
       join "family" f on f."clusterGroupId" = pg."clusterGroupId" and f."id" = ${familyId}
@@ -449,7 +449,9 @@ export class FamilyRepository {
   async mirrorFamilyPeople(familyId: string, personGroupId?: string): Promise<void> {
     await sql`
       insert into "person" ("ownerId", "personGroupId", "name", "birthDate")
-      select m."userId", fp."personGroupId", fp."name", fp."birthDate"
+      -- only an exact birth date goes to the stock records (they have no idea of "just the year")
+      select m."userId", fp."personGroupId", fp."name",
+        case when length(fp."birthDate") = 10 then fp."birthDate"::date end
       from "family_person" fp
       join "family_member" m on m."familyId" = fp."familyId"
       where fp."familyId" = ${familyId}

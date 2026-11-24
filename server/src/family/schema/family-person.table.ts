@@ -22,9 +22,13 @@ names. People without photos (ancestors) are person groups with no faces.
 @UpdatedAtTrigger('family_person_updatedAt')
 @Check({ name: 'family_person_gender_chk', expression: `"gender" IS NULL OR "gender" IN ('female', 'male')` })
 @Check({ name: 'family_person_kind_chk', expression: `"kind" IS NULL OR "kind" IN ('person', 'pet')` })
+@Check({ name: 'family_person_birth_format_chk', expression: String.raw`"birthDate" IS NULL OR "birthDate" ~ '^\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?)?$'` })
+@Check({ name: 'family_person_death_format_chk', expression: String.raw`"deathDate" IS NULL OR "deathDate" ~ '^\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?)?$'` })
+// dates hold what's known ('1951', '1951-03', '1951-03-14'): a death counts from the last day it could
+// have been, so "died March 1951" isn't before "born 14 March 1951"
 @Check({
   name: 'family_person_dates_chk',
-  expression: `"deathDate" IS NULL OR "birthDate" IS NULL OR "deathDate" >= "birthDate"`,
+  expression: `"deathDate" IS NULL OR "birthDate" IS NULL OR (CASE length("deathDate") WHEN 4 THEN "deathDate" || '-12-31' WHEN 7 THEN "deathDate" || '-31' ELSE "deathDate" END) >= "birthDate"`,
 })
 export class FamilyPersonTable {
   @ForeignKeyColumn(() => PersonGroupTable, { onDelete: 'CASCADE', onUpdate: 'CASCADE', primary: true })
@@ -36,11 +40,13 @@ export class FamilyPersonTable {
   @Column({ type: 'character varying', default: '' })
   name!: Generated<string>;
 
-  @Column({ type: 'date', nullable: true })
-  birthDate!: Timestamp | null;
+  /** As much as is known: 'YYYY', 'YYYY-MM' or 'YYYY-MM-DD' (never padded to a made-up day). */
+  @Column({ type: 'character varying', nullable: true })
+  birthDate!: string | null;
 
-  @Column({ type: 'date', nullable: true })
-  deathDate!: Timestamp | null;
+  /** As much as is known: 'YYYY', 'YYYY-MM' or 'YYYY-MM-DD'. */
+  @Column({ type: 'character varying', nullable: true })
+  deathDate!: string | null;
 
   /** Optional; only used for relation words like "grandmother" instead of "grandparent". */
   @Column({ type: 'character varying', nullable: true })

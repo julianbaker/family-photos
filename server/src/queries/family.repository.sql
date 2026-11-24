@@ -281,7 +281,7 @@ select distinct
   on (p."personGroupId") p."personGroupId",
   f."id",
   p."name",
-  p."birthDate"
+  to_char(p."birthDate", 'YYYY-MM-DD')
 from
   "person" p
   join "person_group" pg on pg."id" = p."personGroupId"
@@ -308,11 +308,14 @@ on conflict ("personGroupId") do nothing
 -- FamilyRepository.mirrorFamilyPeople
 insert into
   "person" ("ownerId", "personGroupId", "name", "birthDate")
+  -- only an exact birth date goes to the stock records (they have no idea of "just the year")
 select
   m."userId",
   fp."personGroupId",
   fp."name",
-  fp."birthDate"
+  case
+    when length(fp."birthDate") = 10 then fp."birthDate"::date
+  end
 from
   "family_person" fp
   join "family_member" m on m."familyId" = fp."familyId"
