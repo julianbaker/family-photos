@@ -352,7 +352,13 @@ export class PersonService extends BaseService {
   async handlePersonCleanup(): Promise<JobStatus> {
     // each step can leave the next one something to clean up, so the order matters
     const people = await this.personRepository.getAllWithoutFaces();
-    await this.removeAllPersonGroups(people.map((person) => person.personGroupId));
+    // family fork: family people without photos (ancestors) are kept, with their relations
+    const keep = await BaseService.create(FamilyPeopleService, this).getPeopleToKeep(
+      people.map((person) => person.personGroupId),
+    );
+    await this.removeAllPersonGroups(
+      people.filter((person) => !keep.has(person.personGroupId)).map((person) => person.personGroupId),
+    );
 
     const personGroups = await this.personRepository.deleteEmptyGroups();
     const clusterGroups = await this.personRepository.deleteOrphanedClusterGroups();

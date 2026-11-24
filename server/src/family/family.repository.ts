@@ -47,6 +47,19 @@ export class FamilyRepository {
     return this.db.selectFrom('family').selectAll().where('id', '=', id).executeTakeFirst();
   }
 
+  /** Which of these person groups are family people (kept even with no photos). */
+  async getFamilyPersonGroupIds(personGroupIds: string[]): Promise<Set<string>> {
+    if (personGroupIds.length === 0) {
+      return new Set();
+    }
+    const rows = await this.db
+      .selectFrom('family_person')
+      .select('personGroupId')
+      .where('personGroupId', '=', anyUuid(personGroupIds))
+      .execute();
+    return new Set(rows.map((row) => row.personGroupId));
+  }
+
   updateFamily(id: string, values: { name?: string; wordmark?: string | null }) {
     return this.db.updateTable('family').set(values).where('id', '=', id).execute();
   }

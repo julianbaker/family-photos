@@ -266,6 +266,35 @@ describe(FamilyPeopleService.name, () => {
     });
   });
 
+  describe('nightly cleanup', () => {
+    it('keeps family people without photos, and their relations, but still removes stray people', async () => {
+      const setupResult = setup();
+      const { ctx, sut, stockPeople } = setupResult;
+      const { admin, memberAuth, amyId } = await newFamily(setupResult);
+      const ancestor = await sut.create(memberAuth, { name: 'Great-grandma Ada' });
+      await sut.createRelation(memberAuth, {
+        personId: ancestor.id,
+        relatedPersonId: amyId,
+        type: RelationType.Parent,
+      });
+      // a person outside the family's records, with no faces: the stock cleanup should still remove it
+      const { person: stray } = await ctx.newPerson({ ownerId: admin.id, name: '' });
+      await ctx.database.deleteFrom('family_person').where('personGroupId', '=', stray.personGroupId).execute();
+
+      await stockPeople.handlePersonCleanup();
+
+      const names = (await sut.getAll(memberAuth)).map((person) => person.name);
+      expect(names).toEqual(expect.arrayContaining(['Amy', 'Great-grandma Ada']));
+      expect(await sut.getRelations(memberAuth)).toHaveLength(1);
+      const strayRows = await ctx.database
+        .selectFrom('person')
+        .select('ownerId')
+        .where('personGroupId', '=', stray.personGroupId)
+        .execute();
+      expect(strayRows).toEqual([]);
+    });
+  });
+
   describe('face thumbnails', () => {
     it('shows a member the face from another member’s copy of the person', async () => {
       const setupResult = setup();

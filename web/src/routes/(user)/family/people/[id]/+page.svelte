@@ -15,12 +15,13 @@
     FamilyRelationType,
     createFamilyRelation,
     deleteFamilyRelation,
+    mergePeople,
     updateFamilyPerson,
     type FamilyRelationResponseDto,
   } from '@immich/sdk';
   import { Alert, Badge, Button, Field, Heading, Input, Select, Stack, Text, Textarea } from '@immich/ui';
   import { onMount } from 'svelte';
-  import { invalidateAll } from '$app/navigation';
+  import { goto, invalidateAll } from '$app/navigation';
   import type { PageData } from './$types';
 
   type Props = { data: PageData };
@@ -73,6 +74,41 @@
       handleError(error, 'Could not save');
     } finally {
       saving = false;
+    }
+  };
+
+  // merging: duplicates of the same person (same name, or chosen by hand). The person on this page
+  // is kept; the other's faces, relations and missing details move onto them, for every member.
+  const duplicates = $derived(
+    person.name
+      ? data.people.filter(
+          (item) => item.id !== person.id && item.name.trim().toLowerCase() === person.name.trim().toLowerCase(),
+        )
+      : [],
+  );
+  let mergeId = $state('');
+  let merging = $state(false);
+
+  const merge = async (otherId: string) => {
+    const other = data.people.find((item) => item.id === otherId);
+    const label = other?.name || 'this person';
+    if (
+      !confirm(
+        `Merge ${label} into ${person.name || 'this person'}? Their photos and relations move here, for everyone.`,
+      )
+    ) {
+      return;
+    }
+    merging = true;
+    try {
+      await mergePeople({ mergePersonDto: { ids: [person.id, otherId] } });
+      mergeId = '';
+      await invalidateAll();
+      await goto(Route.familyPerson({ id: person.id }), { invalidateAll: true });
+    } catch (error) {
+      handleError(error, 'Could not merge');
+    } finally {
+      merging = false;
     }
   };
 
@@ -258,6 +294,22 @@
       </div>
     </header>
 
+    {#if familyState.canContribute && duplicates.length > 0}
+      <Alert
+        color="warning"
+        title={`There ${duplicates.length === 1 ? 'is another' : `are ${duplicates.length} others`} named ${person.name}.`}
+      >
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <Text size="small" class="me-2">If they're the same person, merge them so everyone sees one.</Text>
+          {#each duplicates as duplicate (duplicate.id)}
+            <Button size="small" shape="round" loading={merging} onclick={() => merge(duplicate.id)}>
+              Merge {duplicate.faceCount > 0 ? `(${duplicate.faceCount} photos)` : ''}
+            </Button>
+          {/each}
+        </div>
+      </Alert>
+    {/if}
+
     <div class="flex flex-wrap gap-2">
       {#if person.faceCount > 0}
         <Button href={Route.viewPerson(person)} shape="round">Photos of {person.name || 'them'}</Button>
@@ -372,6 +424,23 @@
     {/if}
 
     <section>
+      {#if familyState.canContribute}
+        <div class="mb-8 flex flex-col gap-3 rounded-xl border p-4 dark:border-gray-700">
+          <Text fontWeight="semi-bold">Same person as someone else?</Text>
+          <Text size="small" color="muted">
+            Merge a duplicate into {person.name || 'this person'}: their photos and relations move here, for everyone.
+          </Text>
+          <div class="flex flex-wrap items-end gap-2">
+            <div class="min-w-60 flex-1">
+              <Select bind:value={mergeId} options={[{ value: '', label: 'Choose the duplicate' }, ...others]} />
+            </div>
+            <Button size="small" shape="round" loading={merging} disabled={!mergeId} onclick={() => merge(mergeId)}>
+              Merge
+            </Button>
+          </div>
+        </div>
+      {/if}
+
       <Heading size="small" class="mb-4">All recorded relations</Heading>
       {#if ownRelations.length === 0}
         <Text color="muted">None yet.</Text>

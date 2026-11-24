@@ -272,6 +272,18 @@ export class FamilyPeopleService extends BaseService {
     return true;
   }
 
+  /**
+  Called by the stock person cleanup, which deletes every person without faces. Family people
+  without photos (ancestors, relatives added by name) are kept on purpose: deleting them would also
+  delete their relations. Returns the person groups the cleanup must leave alone.
+  */
+  async getPeopleToKeep(personGroupIds: string[]): Promise<Set<string>> {
+    if (!isFamilyEnabled()) {
+      return new Set();
+    }
+    return this.familyRepository.getFamilyPersonGroupIds(personGroupIds);
+  }
+
   /** Called by the stock thumbnail endpoint when the viewer's own copy has no face crop. */
   async getThumbnailFallback(auth: AuthDto, personGroupId: string): Promise<string | undefined> {
     if (!isFamilyEnabled()) {
