@@ -283,7 +283,8 @@ describe(FamilyPeopleService.name, () => {
 
       await stockPeople.handlePersonCleanup();
 
-      const names = (await sut.getAll(memberAuth)).map((person) => person.name);
+      const everyone = await sut.getAll(memberAuth);
+      const names = everyone.map((person) => person.name);
       expect(names).toEqual(expect.arrayContaining(['Amy', 'Great-grandma Ada']));
       expect(await sut.getRelations(memberAuth)).toHaveLength(1);
       const strayRows = await ctx.database
