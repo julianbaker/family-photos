@@ -83,6 +83,9 @@ const newFamily = async ({ ctx, family }: Setup) => {
   };
 };
 
+const familyPeopleCount = (ctx: Setup['ctx']) =>
+  ctx.database.selectFrom('family_person').select((eb) => eb.fn.countAll<number>().as('n')).executeTakeFirstOrThrow();
+
 const getName = async (ctx: Setup['ctx'], ownerId: string, personGroupId: string) => {
   const row = await getPersonRow(ctx, ownerId, personGroupId);
   return row?.name;
@@ -358,9 +361,6 @@ describe(FamilyPeopleService.name, () => {
   });
 
   describe('adding a relative', () => {
-    const familyPeopleCount = (ctx: Setup['ctx']) =>
-      ctx.database.selectFrom('family_person').select((eb) => eb.fn.countAll<number>().as('n')).executeTakeFirstOrThrow();
-
     it('adds a new father as a male parent, and the other parent as his partner when asked', async () => {
       const setupResult = setup();
       const { sut } = setupResult;
@@ -370,7 +370,8 @@ describe(FamilyPeopleService.name, () => {
 
       const dad = await sut.addRelative(memberAuth, kid.id, { kind: 'father', newName: 'Dad', alsoWith: mum.personId });
 
-      expect((await sut.get(memberAuth, dad.personId)).gender).toBe('male');
+      const created = await sut.get(memberAuth, dad.personId);
+      expect(created.gender).toBe('male');
       expect(dad.relations).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ personId: dad.personId, relatedPersonId: kid.id, type: RelationType.Parent }),
@@ -386,7 +387,8 @@ describe(FamilyPeopleService.name, () => {
       const alice = await sut.create(memberAuth, { name: 'Alice' });
       const bob = await sut.create(memberAuth, { name: 'Bob' });
       const rex = await sut.addRelative(memberAuth, alice.id, { kind: 'pet', newName: 'Rex' });
-      expect((await sut.get(memberAuth, rex.personId)).kind).toBe('pet');
+      const pet = await sut.get(memberAuth, rex.personId);
+      expect(pet.kind).toBe('pet');
       await sut.addRelative(memberAuth, rex.personId, { kind: 'owner', existingId: bob.id });
       const before = await familyPeopleCount(ctx);
 
@@ -455,7 +457,8 @@ describe(FamilyPeopleService.name, () => {
       await ctx.newAssetFace({ assetId: asset.id, personGroupId: amyId, sourceType: SourceType.MachineLearning });
       // a dog's box assigned to Amy by mistake
       await ctx.newAssetFace({ assetId: asset.id, personGroupId: amyId, sourceType: SourceType.Pet });
-      expect((await sut.get(memberAuth, amyId)).kind).toBe('person');
+      const amy = await sut.get(memberAuth, amyId);
+      expect(amy.kind).toBe('person');
     });
   });
 
