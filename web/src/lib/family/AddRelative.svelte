@@ -1,75 +1,53 @@
 <script lang="ts">
-  // family fork: add a parent, child, partner or sibling to someone, choosing an existing person or
-  // typing a new name (for example a great-grandparent with no photos). Used on the person page and
-  // in the tree, where the gaps are.
-  import { bySurname } from '#lib/family/format.ts';
+  // family fork: add a parent, child, partner or sibling from the person page, with the same face
+  // search and the same rules as the family tree (a new person, or someone already in the family).
+  import PersonPicker from '#lib/family/tree/PersonPicker.svelte';
+  import { KIND_LABEL, addRelative, companion, type RelativeKind as TreeKind } from '#lib/family/tree/actions.ts';
+  import { buildGraph } from '#lib/family/tree/layout.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
-  import {
-    FamilyRelationType,
-    createFamilyPerson,
-    createFamilyRelation,
-    type FamilyPersonResponseDto,
-  } from '@immich/sdk';
-  import { Button, Field, Input, Select, Text } from '@immich/ui';
+  import type { FamilyPersonResponseDto, FamilyRelationResponseDto } from '@immich/sdk';
+  import { Button, Text } from '@immich/ui';
 
   export type RelativeKind = 'parent' | 'child' | 'spouse' | 'sibling';
 
   type Props = {
     person: { id: string; name: string };
     people: FamilyPersonResponseDto[];
+    relations: FamilyRelationResponseDto[];
     kind: RelativeKind;
     onDone: () => void | Promise<void>;
     onCancel: () => void;
   };
-  let { person, people, kind, onDone, onCancel }: Props = $props();
+  let { person, people, relations, kind, onDone, onCancel }: Props = $props();
 
-  const noun: Record<RelativeKind, string> = {
-    parent: 'parent',
-    child: 'child',
-    spouse: 'partner',
-    sibling: 'brother or sister',
-  };
-
-  let existingId = $state('');
-  let newName = $state('');
+  const treeKind: TreeKind = $derived(kind === 'spouse' ? 'partner' : kind);
+  const graph = $derived(buildGraph(people, relations));
+  const other = $derived(companion(graph, treeKind, person.id));
+  let linkCompanion = $state(true);
   let saving = $state(false);
 
-  const options = $derived([
-    { value: '', label: 'Choose someone' },
-    ...people
-      .filter((item) => item.id !== person.id && item.name)
-      .sort(bySurname)
-      .map((item) => ({ value: item.id, label: item.name })),
+  const exclude = $derived([
+    person.id,
+    ...relations.flatMap((relation) =>
+      relation.personId === person.id
+        ? relation.relatedPersonId
+        : relation.relatedPersonId === person.id
+          ? relation.personId
+          : [],
+    ),
   ]);
 
-  const canSave = $derived(!!existingId || !!newName.trim());
-
-  const save = async (event: Event) => {
-    event.preventDefault();
-    if (!canSave) {
+  const save = async (choice: { existingId?: string; newName?: string }) => {
+    if (saving) {
       return;
     }
     saving = true;
     try {
-      let otherId = existingId;
-      if (!otherId) {
-        const created = await createFamilyPerson({ familyPersonCreateDto: { name: newName.trim() } });
-        otherId = created.id;
-      }
-      // relations are stored as "personId is the <type> of relatedPersonId"
-      const otherFirst = kind !== 'child';
-      const type =
-        kind === 'spouse'
-          ? FamilyRelationType.Spouse
-          : kind === 'sibling'
-            ? FamilyRelationType.Sibling
-            : FamilyRelationType.Parent;
-      await createFamilyRelation({
-        familyRelationCreateDto: {
-          personId: otherFirst ? otherId : person.id,
-          relatedPersonId: otherFirst ? person.id : otherId,
-          type,
-        },
+      await addRelative({
+        kind: treeKind,
+        forId: person.id,
+        ...choice,
+        withCompanion: linkCompanion && other ? other.id : null,
       });
       await onDone();
     } catch (error) {
@@ -80,18 +58,21 @@
   };
 </script>
 
-<form onsubmit={save} class="flex flex-col gap-3 rounded-xl border p-4 text-start dark:border-gray-700">
-  <Text fontWeight="semi-bold">Add {person.name || 'their'}'s {noun[kind]}</Text>
-  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-    <Field label="Someone already here">
-      <Select bind:value={existingId} {options} onChange={() => (newName = '')} />
-    </Field>
-    <Field label="Or someone new">
-      <Input bind:value={newName} placeholder="Their name" oninput={() => (existingId = '')} />
-    </Field>
-  </div>
-  <div class="flex gap-2">
-    <Button type="submit" size="small" shape="round" loading={saving} disabled={!canSave}>Add</Button>
-    <Button size="small" variant="ghost" shape="round" onclick={onCancel}>Cancel</Button>
-  </div>
-</form>
+<div class="flex flex-col gap-3 rounded-xl border p-4 text-start dark:border-gray-700">
+  <Text fontWeight="semi-bold">Add {person.name || 'their'}'s {KIND_LABEL[treeKind]}</Text>
+  <PersonPicker
+    {people}
+    {exclude}
+    placeholder="Find someone, or type a new name"
+    onPick={(chosen) => save({ existingId: chosen.id })}
+    onCreate={(name) => save({ newName: name })}
+    {onCancel}
+  />
+  {#if other}
+    <label class="flex items-center gap-2 text-sm">
+      <input type="checkbox" bind:checked={linkCompanion} />
+      {other.text}
+    </label>
+  {/if}
+  <div><Button size="small" variant="ghost" shape="round" onclick={onCancel}>Cancel</Button></div>
+</div>

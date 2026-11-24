@@ -378,6 +378,7 @@
             <AddRelative
               {person}
               people={data.people}
+              relations={data.relations}
               kind={quickAdd}
               onCancel={() => (quickAdd = null)}
               onDone={async () => {
