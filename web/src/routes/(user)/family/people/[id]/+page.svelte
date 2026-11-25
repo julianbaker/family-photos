@@ -3,7 +3,9 @@
   import UserPageLayout from '#lib/components/layouts/UserPageLayout.svelte';
   import AddRelative, { type RelativeKind } from '#lib/family/AddRelative.svelte';
   import FamilyFace from '#lib/family/FamilyFace.svelte';
+  import InvitePersonModal from '#lib/family/InvitePersonModal.svelte';
   import PartialDateInput from '#lib/family/PartialDateInput.svelte';
+  import type { FamilyInviteRequestCreateWithPersonDto } from '#lib/family/app-login.ts';
   import { renderBio } from '#lib/family/bio.ts';
   import { familyState } from '#lib/family/family-state.svelte.ts';
   import { BROWSE_KEYS, RELATIVE_GROUPS, bySurname, formatDate, lifespan } from '#lib/family/format.ts';
@@ -14,13 +16,27 @@
     FamilyGender,
     FamilyRelationQualifier,
     FamilyRelationType,
+    createFamilyInviteRequest,
     createFamilyRelation,
     deleteFamilyRelation,
     mergePeople,
     updateFamilyPerson,
     type FamilyRelationResponseDto,
   } from '@immich/sdk';
-  import { Alert, Badge, Button, Field, Heading, Input, Select, Stack, Text, Textarea } from '@immich/ui';
+  import {
+    Alert,
+    Badge,
+    Button,
+    Field,
+    Heading,
+    Input,
+    Select,
+    Stack,
+    Text,
+    Textarea,
+    modalManager,
+    toastManager,
+  } from '@immich/ui';
   import { onMount } from 'svelte';
   import { goto, invalidateAll } from '$app/navigation';
   import type { PageData } from './$types';
@@ -122,6 +138,31 @@
       await invalidateAll();
     } catch (error) {
       handleError(error, 'Could not update');
+    }
+  };
+
+  // inviting this person: admins make the link; members ask an admin; viewers, pets and people who
+  // already have an account don't get the option
+  const canInvite = $derived(familyState.canContribute && person.kind !== 'pet' && !person.linkedUserId);
+  let askingForInvite = $state(false);
+  let askedForInvite = $state(false);
+
+  const invite = () => modalManager.show(InvitePersonModal, { person: { id: person.id, name: person.name } });
+
+  const askForInvite = async () => {
+    askingForInvite = true;
+    try {
+      const dto: FamilyInviteRequestCreateWithPersonDto = {
+        name: person.name || 'Unnamed person',
+        personId: person.id,
+      };
+      await createFamilyInviteRequest({ familyInviteRequestCreateDto: dto });
+      askedForInvite = true;
+      toastManager.primary(`Asked an admin to invite ${person.name || 'them'}`);
+    } catch (error) {
+      handleError(error, 'Could not send the request');
+    } finally {
+      askingForInvite = false;
     }
   };
 
@@ -335,6 +376,21 @@
         <Button variant="ghost" shape="round" onclick={() => setHidden(!person.isHidden)}>
           {person.isHidden ? 'Show in People' : 'Hide from People'}
         </Button>
+      {/if}
+      {#if canInvite && !editing}
+        {#if familyState.isAdmin}
+          <Button variant="ghost" shape="round" onclick={invite}>Invite to sibred</Button>
+        {:else}
+          <Button
+            variant="ghost"
+            shape="round"
+            loading={askingForInvite}
+            disabled={askedForInvite}
+            onclick={askForInvite}
+          >
+            {askedForInvite ? 'Asked an admin' : 'Ask an admin to invite them'}
+          </Button>
+        {/if}
       {/if}
     </div>
 

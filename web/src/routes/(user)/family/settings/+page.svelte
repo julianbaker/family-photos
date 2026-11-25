@@ -1,6 +1,8 @@
 <script lang="ts">
   // family fork: the family's name and the website wordmark, members, invite links and invite requests
   import UserPageLayout from '#lib/components/layouts/UserPageLayout.svelte';
+  import OpenInAppPanel from '#lib/family/OpenInAppPanel.svelte';
+  import type { FamilyInviteRequestWithPersonDto, FamilyInviteWithPersonDto } from '#lib/family/app-login.ts';
   import { DEFAULT_WORDMARK, branding } from '#lib/family/branding.svelte.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { copyToClipboard } from '#lib/utils.ts';
@@ -32,8 +34,9 @@
   let { data }: Props = $props();
 
   let family = $state<FamilyResponseDto | null>(data.family);
-  let invites = $state<FamilyInviteResponseDto[]>([]);
-  let requests = $state<FamilyInviteRequestResponseDto[]>([]);
+  let invites = $state<FamilyInviteWithPersonDto[]>([]);
+  let requests = $state<FamilyInviteRequestWithPersonDto[]>([]);
+  let showOpenInApp = $state(false);
   let newLink = $state<string | null>(null);
 
   // new link form
@@ -225,6 +228,18 @@
     {#if !family}
       <Alert color="secondary" title="You're not in a family library yet." />
     {:else}
+      <section>
+        <Heading size="small" class="mb-2">The iPhone app</Heading>
+        <Text size="small" color="muted" class="mb-4">
+          Sign the app in to this library without typing the server address or your password.
+        </Text>
+        {#if showOpenInApp}
+          <OpenInAppPanel />
+        {:else}
+          <Button shape="round" onclick={() => (showOpenInApp = true)}>Open in the App</Button>
+        {/if}
+      </section>
+
       {#if isAdmin}
         <section>
           <Heading size="small" class="mb-4">Name and website</Heading>
@@ -341,6 +356,9 @@
                 <li class="flex flex-wrap items-center gap-3 rounded-lg border p-3 dark:border-gray-700">
                   <div class="min-w-0 flex-1">
                     <Text fontWeight="semi-bold">{invite.label || roleLabel[invite.role] + ' link'}</Text>
+                    {#if invite.personName}
+                      <Text size="small" color="muted">Will be linked to {invite.personName} in the family</Text>
+                    {/if}
                     <Text size="small" color="muted">
                       {roleLabel[invite.role]} · used {invite.uses}{invite.maxUses === null
                         ? ''
@@ -397,6 +415,9 @@
                 <div class="flex flex-wrap items-center gap-3">
                   <div class="min-w-0 flex-1">
                     <Text fontWeight="semi-bold">{request.name}</Text>
+                    {#if request.personName}
+                      <Text size="small" color="muted">Will be linked to {request.personName} in the family</Text>
+                    {/if}
                     <Text size="small" color="muted">
                       {isAdmin ? `Asked by ${request.requestedByName} · ` : ''}{formatDate(request.createdAt)}
                     </Text>
