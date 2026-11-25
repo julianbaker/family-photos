@@ -7355,6 +7355,85 @@
         ]
       }
     },
+    "/family/app-login-codes": {
+      "post": {
+        "description": "A one-time link (and QR code) that opens the iOS app signed in as you. It works once, for 5 minutes.",
+        "operationId": "createFamilyAppLoginCode",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FamilyAppLoginCodeResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {
+            "cookie": []
+          },
+          {
+            "api_key": []
+          }
+        ],
+        "summary": "Make a sign-in code for the app",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
+    "/family/app-login-codes/redeem": {
+      "post": {
+        "description": "The app trades a one-time code for a session of its own. No sign-in needed.",
+        "operationId": "redeemFamilyAppLoginCode",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FamilyAppLoginRedeemDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponseDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "Sign in with a sign-in code",
+        "tags": [
+          "Family"
+        ],
+        "x-immich-history": [
+          {
+            "version": "v3.4.2",
+            "state": "Added"
+          }
+        ]
+      }
+    },
     "/family/assets/{id}/comments": {
       "get": {
         "description": "Family comments, oldest first.",
@@ -24528,6 +24607,50 @@
         ],
         "type": "object"
       },
+      "FamilyAppLoginCodeResponseDto": {
+        "properties": {
+          "appUrl": {
+            "description": "Custom-scheme link for when the server is not built into the app: sibred://app-login?server=...&code=...",
+            "type": "string"
+          },
+          "code": {
+            "description": "One-time sign-in code; works once, for 5 minutes",
+            "type": "string"
+          },
+          "expiresAt": {
+            "description": "When the code stops working",
+            "example": "2024-01-01T00:00:00.000Z",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+          },
+          "url": {
+            "description": "Universal link that opens the app signed in: https://<server>/app-login?code=<code>",
+            "type": "string"
+          }
+        },
+        "required": [
+          "appUrl",
+          "code",
+          "expiresAt",
+          "url"
+        ],
+        "type": "object"
+      },
+      "FamilyAppLoginRedeemDto": {
+        "properties": {
+          "code": {
+            "description": "The one-time sign-in code",
+            "maxLength": 200,
+            "minLength": 16,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
       "FamilyAssetPersonResponseDto": {
         "properties": {
           "age": {
@@ -24570,12 +24693,18 @@
       },
       "FamilyBrandingResponseDto": {
         "properties": {
+          "appUrl": {
+            "description": "Where to get the iOS app, if configured",
+            "nullable": true,
+            "type": "string"
+          },
           "wordmark": {
             "description": "Text shown in place of a logo on the website",
             "type": "string"
           }
         },
         "required": [
+          "appUrl",
           "wordmark"
         ],
         "type": "object"
@@ -24769,6 +24898,12 @@
             "nullable": true,
             "type": "integer"
           },
+          "personId": {
+            "description": "Family person the invite is for; whoever joins with it is linked to them",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
           "role": {
             "$ref": "#/components/schemas/FamilyRole",
             "default": "member",
@@ -24793,6 +24928,11 @@
           "familyName": {
             "type": "string"
           },
+          "personName": {
+            "description": "Who the invite is for, when it is for a family person",
+            "nullable": true,
+            "type": "string"
+          },
           "role": {
             "$ref": "#/components/schemas/FamilyRole"
           },
@@ -24808,6 +24948,7 @@
           "appUrl",
           "expiresAt",
           "familyName",
+          "personName",
           "role",
           "status",
           "valid"
@@ -24851,6 +24992,12 @@
             "description": "Anything the admin should know",
             "maxLength": 500,
             "type": "string"
+          },
+          "personId": {
+            "description": "Family person to invite; the invite will be for them",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
           }
         },
         "required": [
@@ -24890,6 +25037,18 @@
             "nullable": true,
             "type": "string"
           },
+          "personId": {
+            "description": "Family person to invite",
+            "format": "uuid",
+            "nullable": true,
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "personName": {
+            "description": "That person's name",
+            "nullable": true,
+            "type": "string"
+          },
           "requestedById": {
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
@@ -24909,6 +25068,8 @@
           "name",
           "note",
           "path",
+          "personId",
+          "personName",
           "requestedById",
           "requestedByName",
           "status"
@@ -24955,6 +25116,18 @@
           },
           "path": {
             "description": "The link path, e.g. /invite/<token>; only returned when created",
+            "type": "string"
+          },
+          "personId": {
+            "description": "Family person the invite is for",
+            "format": "uuid",
+            "nullable": true,
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+            "type": "string"
+          },
+          "personName": {
+            "description": "That person's name",
+            "nullable": true,
             "type": "string"
           },
           "revokedAt": {
@@ -25014,6 +25187,8 @@
           "id",
           "label",
           "maxUses",
+          "personId",
+          "personName",
           "revokedAt",
           "role",
           "status",
@@ -25493,7 +25668,7 @@
         "type": "object"
       },
       "FamilyRelativeKind": {
-        "description": "How the relative is related to the person: their father, partner, pet, godmother; or, for a pet, its owner",
+        "description": "How the relative is related to the person: their father, partner, pet, godmother; or, for a pet, a companion (the value \"owner\")",
         "enum": [
           "father",
           "mother",

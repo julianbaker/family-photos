@@ -1805,6 +1805,20 @@ export type FamilyUpdateDto = {
     /** Text shown in place of a logo on the website; empty or null for the default */
     wordmark?: string | null;
 };
+export type FamilyAppLoginCodeResponseDto = {
+    /** Custom-scheme link for when the server is not built into the app: sibred://app-login?server=...&code=... */
+    appUrl: string;
+    /** One-time sign-in code; works once, for 5 minutes */
+    code: string;
+    /** When the code stops working */
+    expiresAt: string;
+    /** Universal link that opens the app signed in: https://<server>/app-login?code=<code> */
+    url: string;
+};
+export type FamilyAppLoginRedeemDto = {
+    /** The one-time sign-in code */
+    code: string;
+};
 export type FamilyCommentResponseDto = {
     assetId: string;
     canDelete: boolean;
@@ -1832,6 +1846,8 @@ export type FamilyAssetPersonResponseDto = {
     relationToMe: (FamilyRelationshipDto) | null;
 };
 export type FamilyBrandingResponseDto = {
+    /** Where to get the iOS app, if configured */
+    appUrl: string | null;
     /** Text shown in place of a logo on the website */
     wordmark: string;
 };
@@ -1858,6 +1874,10 @@ export type FamilyInviteRequestResponseDto = {
     note: string | null;
     /** The approved link path, until it is used */
     path: string | null;
+    /** Family person to invite */
+    personId: string | null;
+    /** That person's name */
+    personName: string | null;
     requestedById: string;
     requestedByName: string;
     status: FamilyInviteRequestStatus;
@@ -1867,6 +1887,8 @@ export type FamilyInviteRequestCreateDto = {
     name: string;
     /** Anything the admin should know */
     note?: string;
+    /** Family person to invite; the invite will be for them */
+    personId?: string;
 };
 export type FamilyInviteRequestApproveDto = {
     /** Days until the link expires */
@@ -1884,6 +1906,10 @@ export type FamilyInviteResponseDto = {
     maxUses: number | null;
     /** The link path, e.g. /invite/<token>; only returned when created */
     path?: string;
+    /** Family person the invite is for */
+    personId: string | null;
+    /** That person's name */
+    personName: string | null;
     revokedAt: string | null;
     role: FamilyRole;
     status: FamilyInviteStatus;
@@ -1904,6 +1930,8 @@ export type FamilyInviteCreateDto = {
     label?: string;
     /** How many people can join with the link; null for any number until it expires */
     maxUses?: number | null;
+    /** Family person the invite is for; whoever joins with it is linked to them */
+    personId?: string;
     /** Role the new member gets */
     role?: FamilyRole;
 };
@@ -1925,6 +1953,8 @@ export type FamilyInvitePreviewDto = {
     appUrl: string | null;
     expiresAt: string;
     familyName: string;
+    /** Who the invite is for, when it is for a family person */
+    personName: string | null;
     role: FamilyRole;
     status: FamilyInviteStatus;
     /** Whether the link can still be used */
@@ -5926,6 +5956,33 @@ export function updateFamily({ familyUpdateDto }: {
         ...opts,
         method: "PUT",
         body: familyUpdateDto
+    })));
+}
+/**
+ * Make a sign-in code for the app
+ */
+export function createFamilyAppLoginCode(opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 201;
+        data: FamilyAppLoginCodeResponseDto;
+    }>("/family/app-login-codes", {
+        ...opts,
+        method: "POST"
+    }));
+}
+/**
+ * Sign in with a sign-in code
+ */
+export function redeemFamilyAppLoginCode({ familyAppLoginRedeemDto }: {
+    familyAppLoginRedeemDto: FamilyAppLoginRedeemDto;
+}, opts?: Oazapfts.RequestOpts) {
+    return oazapfts.ok(oazapfts.fetchJson<{
+        status: 200;
+        data: LoginResponseDto;
+    }>("/family/app-login-codes/redeem", oazapfts.json({
+        ...opts,
+        method: "POST",
+        body: familyAppLoginRedeemDto
     })));
 }
 /**
