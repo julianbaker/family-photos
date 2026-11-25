@@ -36,21 +36,28 @@ describe(FamilyPeopleService.name, () => {
     const commentId = newUuid();
     const own = { id: commentId, userId: auth.user.id, assetId: newUuid(), text: 'hello' };
 
-    it('refuses a viewer deleting their own comment', async () => {
+    it('lets a viewer delete their own comment (comments are the one thing viewers write)', async () => {
       mocks.family.getMembership.mockResolvedValue({ familyId, clusterGroupId: newUuid(), role: FamilyRole.Viewer });
       mocks.family.getComment.mockResolvedValue(own as never);
 
-      await expect(sut.deleteComment(auth, commentId)).rejects.toBeInstanceOf(ForbiddenException);
-      expect(mocks.family.deleteComment).not.toHaveBeenCalled();
+      await sut.deleteComment(auth, commentId);
+      expect(mocks.family.deleteComment).toHaveBeenCalledWith(commentId);
     });
 
-    it('does not offer a viewer the delete button', async () => {
+    it("refuses a viewer deleting someone else's comment", async () => {
+      mocks.family.getMembership.mockResolvedValue({ familyId, clusterGroupId: newUuid(), role: FamilyRole.Viewer });
+      mocks.family.getComment.mockResolvedValue({ ...own, userId: newUuid() } as never);
+
+      await expect(sut.deleteComment(auth, commentId)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('offers a viewer the delete button on their own comment', async () => {
       mocks.family.getMembership.mockResolvedValue({ familyId, clusterGroupId: newUuid(), role: FamilyRole.Viewer });
       mocks.family.getFamilyAssetIds.mockResolvedValue(new Set([own.assetId]));
       mocks.family.getComments.mockResolvedValue([{ ...own, userName: 'A', createdAt: new Date() }] as never);
 
       const [comment] = await sut.getComments(auth, own.assetId);
-      expect(comment.canDelete).toBe(false);
+      expect(comment.canDelete).toBe(true);
     });
 
     it('lets a member delete their own comment', async () => {
@@ -61,9 +68,12 @@ describe(FamilyPeopleService.name, () => {
       expect(mocks.family.deleteComment).toHaveBeenCalledWith(commentId);
     });
 
-    it('refuses a viewer posting a comment', async () => {
+    it('lets a viewer post a comment', async () => {
       mocks.family.getMembership.mockResolvedValue({ familyId, clusterGroupId: newUuid(), role: FamilyRole.Viewer });
-      await expect(sut.createComment(auth, own.assetId, { text: 'hi' })).rejects.toBeInstanceOf(ForbiddenException);
+      mocks.family.getFamilyAssetIds.mockResolvedValue(new Set([own.assetId]));
+      mocks.family.createComment.mockResolvedValue({ id: commentId, text: 'hi', createdAt: new Date() } as never);
+
+      await expect(sut.createComment(auth, own.assetId, { text: 'hi' })).resolves.toMatchObject({ text: 'hi' });
     });
   });
 

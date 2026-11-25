@@ -120,8 +120,6 @@ describe('family access grants', () => {
       Permission.FaceDelete,
       Permission.PersonCreate,
       Permission.PersonReassign,
-      Permission.ActivityCreate,
-      Permission.ActivityDelete,
       Permission.StackUpdate,
       Permission.TagAsset,
     ];
@@ -147,6 +145,16 @@ describe('family access grants', () => {
       access.asset.checkOwnerAccess.mockResolvedValue(ids);
 
       await expect(checkAccess(access as never, { auth, permission: Permission.AssetDelete, ids })).resolves.toEqual(
+        ids,
+      );
+    });
+
+    it('should let a viewer comment (album activity), the one thing viewers write', async () => {
+      const access = newAccessRepositoryMock();
+      access.family.isViewer.mockResolvedValue(true);
+      access.activity.checkOwnerAccess.mockResolvedValue(ids);
+
+      await expect(checkAccess(access as never, { auth, permission: Permission.ActivityDelete, ids })).resolves.toEqual(
         ids,
       );
     });

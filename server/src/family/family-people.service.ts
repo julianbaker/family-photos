@@ -680,14 +680,14 @@ export class FamilyPeopleService extends BaseService {
       userName: comment.userName,
       text: comment.text,
       createdAt: comment.createdAt as unknown as Date,
-      canDelete:
-        CONTRIBUTOR_ROLES.includes(membership.role) &&
-        (comment.userId === auth.user.id || membership.role === FamilyRole.Admin),
+      // anyone may delete their own comment (viewers too: comments are the one thing they write); admins any
+      canDelete: comment.userId === auth.user.id || membership.role === FamilyRole.Admin,
     }));
   }
 
   async createComment(auth: AuthDto, assetId: string, dto: FamilyCommentCreateDto): Promise<FamilyCommentResponseDto> {
-    const membership = await requireFamilyRole(this.familyRepository, auth, CONTRIBUTOR_ROLES);
+    // every member comments, viewers included (owner decision 2026-11-25)
+    const membership = await requireFamilyRole(this.familyRepository, auth);
     await this.requireFamilyAsset(membership, assetId);
     const comment = await this.familyRepository.createComment({
       familyId: membership.familyId,
@@ -707,8 +707,7 @@ export class FamilyPeopleService extends BaseService {
   }
 
   async deleteComment(auth: AuthDto, id: string): Promise<void> {
-    // a Viewer changes nothing, not even their own comment from before they were demoted
-    const membership = await requireFamilyRole(this.familyRepository, auth, CONTRIBUTOR_ROLES);
+    const membership = await requireFamilyRole(this.familyRepository, auth);
     const comment = await this.familyRepository.getComment(id, membership.familyId);
     if (!comment) {
       throw new BadRequestException('Comment not found');

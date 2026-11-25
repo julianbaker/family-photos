@@ -59,9 +59,6 @@ owner grant, so a photo a Viewer owns (uploaded before being demoted, or added a
 writable either. Adding photos to albums (`AssetShare`, `AlbumAssetCreate`) is deliberately not here.
 */
 const VIEWER_BLOCKED_PERMISSIONS = new Set<Permission>([
-  Permission.ActivityCreate,
-  Permission.ActivityUpdate,
-  Permission.ActivityDelete,
   Permission.AssetUpdate,
   Permission.AssetDelete,
   Permission.AssetUpload,
