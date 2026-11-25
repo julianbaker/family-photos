@@ -32,3 +32,26 @@ export const requireFamilyRole = async (
 };
 
 export const CONTRIBUTOR_ROLES = [FamilyRole.Admin, FamilyRole.Member];
+
+/**
+Stock cluster-group changes (a request to join, accepting one, leaving) must not cross the family's
+boundary: members stay in the family's face-recognition group until an admin removes them, and nobody
+joins that group except by joining the family. Otherwise a nonmember would share the family's people.
+*/
+export const requireNoFamilyClusterChange = async (
+  family: FamilyRepository,
+  userId: string,
+  joinClusterGroupId?: string,
+) => {
+  if (!isFamilyEnabled()) {
+    return;
+  }
+  if (await family.getMembership(userId)) {
+    throw new BadRequestException(
+      "Family members stay in the family's face-recognition group; a family admin can remove someone from the family",
+    );
+  }
+  if (joinClusterGroupId && (await family.getFamilyByClusterGroup(joinClusterGroupId))) {
+    throw new BadRequestException('That group belongs to the family; people join the family by invitation');
+  }
+};

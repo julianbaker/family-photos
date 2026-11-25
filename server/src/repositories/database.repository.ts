@@ -386,7 +386,7 @@ export class DatabaseRepository {
   async runMigrations(): Promise<number> {
     this.logger.log('Running migrations');
 
-    const migrator = this.createMigrator();
+    const migrator = await this.createMigrator();
 
     const { error, results = [] } = await migrator.migrateToLatest();
 
@@ -501,12 +501,26 @@ export class DatabaseRepository {
     await sql`SELECT pg_advisory_unlock(${lock})`.execute(connection);
   }
 
-  private createMigrator(): Migrator {
+  /**
+  family fork: true when this database has already run a fork migration. Decided from the installed
+  migration history alone, never from a runtime setting: an upstream release can bring migrations that
+  sort before the fork's already-applied ones, and those must still run.
+  */
+  async hasForkMigrations(): Promise<boolean> {
+    const { rows } = await sql<{ installed: boolean }>`
+      select case
+        when to_regclass('kysely_migrations') is null then false
+        else exists (select 1 from "kysely_migrations" where "name" like ${'%Family%'})
+      end as installed
+    `.execute(this.db);
+    return rows[0]?.installed ?? false;
+  }
+
+  private async createMigrator(): Promise<Migrator> {
     return new Migrator({
       db: this.db,
       migrationLockTableName: 'kysely_migrations_lock',
-      // family fork: upstream releases can bring migrations that sort before the fork's, already applied ones
-      allowUnorderedMigrations: true,
+      allowUnorderedMigrations: this.configRepository.isDev() || (await this.hasForkMigrations()),
       migrationTableName: 'kysely_migrations',
       provider: new FileMigrationProvider({
         fs: { readdir },

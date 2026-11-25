@@ -216,7 +216,13 @@
 <svelte:head>
   <!-- family fork: the site's own name -->
   <title>{page.data.meta?.title || 'Web'} - {branding.wordmark}</title>
-  <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
+  <link rel="manifest" href={branding.stock ? '/stock/manifest.json' : '/manifest.json'} crossorigin="use-credentials" />
+  {#if branding.stock}
+    <!-- stock Immich icons; the static page starts with the sibred ones until this runs -->
+    <link rel="icon" type="image/x-icon" sizes="32x32" href="/stock/favicon.ico" />
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/stock/icon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/stock/apple-icon-180.png" />
+  {/if}
   <meta name="theme-color" content="white" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="black" media="(prefers-color-scheme: dark)" />
 </svelte:head>

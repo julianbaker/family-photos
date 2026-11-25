@@ -4,7 +4,7 @@ import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { InjectKysely } from 'nestjs-kysely';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
 import { AlbumUserRole, AssetFileType, AssetVisibility, SourceType } from 'src/enum.js';
-import { FamilyInviteRequestStatus, FamilyRole } from 'src/family/family.enum.js';
+import { FamilyHistoryAction, FamilyInviteRequestStatus, FamilyRole } from 'src/family/family.enum.js';
 import { FamilyAppLoginCodeTable } from 'src/family/schema/family-app-login-code.table.js';
 import { FamilyCommentTable } from 'src/family/schema/family-comment.table.js';
 import { FamilyHistoryTable } from 'src/family/schema/family-history.table.js';
@@ -123,40 +123,230 @@ export class FamilyRepository {
     await this.db.deleteFrom('family_member').where('userId', '=', userId).execute();
   }
 
+  private async lockFamily(trx: Kysely<DB>, familyId: string) {
+    await trx.selectFrom('family').select('id').where('id', '=', familyId).forUpdate().executeTakeFirst();
+  }
+
+  /** Users who share the family's cluster group without being members (the family's boundary is broken). */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  getClusterOutsiders(clusterGroupId: string) {
+    return this.db
+      .selectFrom('user')
+      .select(['user.id', 'user.email', 'user.name'])
+      .where('user.clusterGroupId', '=', clusterGroupId)
+      .where('user.deletedAt', 'is', null)
+      .where((eb) =>
+        eb.not(eb.exists(eb.selectFrom('family_member').whereRef('family_member.userId', '=', 'user.id'))),
+      )
+      .execute();
+  }
+
+  /** Creates the family, its first admin and the history entry in one transaction: all or nothing. */
+  async createFamilyWithAdmin(clusterGroupId: string, name: string | undefined, userId: string) {
+    return this.db.transaction().execute(async (trx) => {
+      const family = await trx
+        .insertInto('family')
+        .values({ clusterGroupId, ...(name && { name }) })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      await trx
+        .insertInto('family_member')
+        .values({ userId, familyId: family.id, role: FamilyRole.Admin, addedById: userId })
+        .execute();
+      await trx
+        .insertInto('family_history')
+        .values({
+          familyId: family.id,
+          userId,
+          action: FamilyHistoryAction.FamilyCreate,
+          entityType: 'family',
+          entityId: family.id,
+          before: null,
+          after: { name: family.name },
+        })
+        .execute();
+      return family;
+    });
+  }
+
+  /** Adds a member and records it in one transaction. False when the user already is in a family. */
+  async addMemberWithHistory(
+    member: { userId: string; familyId: string; role: FamilyRole; addedById: string | null },
+    actorId: string | null,
+  ): Promise<boolean> {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockFamily(trx, member.familyId);
+      const existing = await trx
+        .selectFrom('family_member')
+        .select('userId')
+        .where('userId', '=', member.userId)
+        .executeTakeFirst();
+      if (existing) {
+        return false;
+      }
+      await trx.insertInto('family_member').values(member).execute();
+      await trx
+        .insertInto('family_history')
+        .values({
+          familyId: member.familyId,
+          userId: actorId,
+          action: FamilyHistoryAction.MemberAdd,
+          entityType: 'user',
+          entityId: member.userId,
+          before: null,
+          after: { role: member.role },
+        })
+        .execute();
+      return true;
+    });
+  }
+
+  /**
+  Changes a member's role and records it, with the family row locked so two admins cannot each demote
+  themselves after both saw two admins.
+  */
+  async changeMemberRole(
+    familyId: string,
+    userId: string,
+    role: FamilyRole,
+    actorId: string,
+  ): Promise<{ result: 'changed'; previous: FamilyRole } | { result: 'unchanged' | 'not-a-member' | 'last-admin' }> {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockFamily(trx, familyId);
+      const members = await trx.selectFrom('family_member').select(['userId', 'role']).where('familyId', '=', familyId).execute();
+      const member = members.find((item) => item.userId === userId);
+      if (!member) {
+        return { result: 'not-a-member' as const };
+      }
+      if (member.role === role) {
+        return { result: 'unchanged' as const };
+      }
+      if (member.role === FamilyRole.Admin && members.filter((item) => item.role === FamilyRole.Admin).length === 1) {
+        return { result: 'last-admin' as const };
+      }
+      await trx.updateTable('family_member').set({ role }).where('userId', '=', userId).execute();
+      await trx
+        .insertInto('family_history')
+        .values({
+          familyId,
+          userId: actorId,
+          action: FamilyHistoryAction.MemberRoleUpdate,
+          entityType: 'user',
+          entityId: userId,
+          before: { role: member.role },
+          after: { role },
+        })
+        .execute();
+      return { result: 'changed' as const, previous: member.role as FamilyRole };
+    });
+  }
+
+  /**
+  Removes a member in one transaction, with the family row locked (the last admin cannot go, even with
+  two removals at once): restores the sharing the family wrote for them, deletes the membership and
+  records it. The caller then moves the user to a cluster group of their own.
+  */
+  async removeMemberChecked(
+    familyId: string,
+    userId: string,
+    actorId: string,
+  ): Promise<{ result: 'removed'; role: FamilyRole } | { result: 'not-a-member' | 'last-admin' }> {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockFamily(trx, familyId);
+      const members = await trx.selectFrom('family_member').select(['userId', 'role']).where('familyId', '=', familyId).execute();
+      const member = members.find((item) => item.userId === userId);
+      if (!member) {
+        return { result: 'not-a-member' as const };
+      }
+      if (member.role === FamilyRole.Admin && members.filter((item) => item.role === FamilyRole.Admin).length === 1) {
+        return { result: 'last-admin' as const };
+      }
+      const otherIds = members.map((item) => item.userId).filter((id) => id !== userId);
+      await this.removePartnerMesh(userId, otherIds, trx);
+      await this.removeAlbumUsers(userId, otherIds, trx);
+      await trx.deleteFrom('family_member').where('userId', '=', userId).execute();
+      await trx
+        .insertInto('family_history')
+        .values({
+          familyId,
+          userId: actorId,
+          action: FamilyHistoryAction.MemberRemove,
+          entityType: 'user',
+          entityId: userId,
+          before: { role: member.role },
+          after: null,
+        })
+        .execute();
+      return { result: 'removed' as const, role: member.role as FamilyRole };
+    });
+  }
+
   /**
   Partner rows in both directions between every pair of members, all shown in the timeline. This is
   what makes stock timeline, search, map, people lists and the mobile sync (with backfill) include
-  every member's photos.
+  every member's photos. Each row the family creates (or switches into the timeline) is recorded in
+  `family_partner_grant` with what was there before, so removing a member can put it back. Rows the
+  users already shared themselves (in the timeline) are left unrecorded and never touched.
   */
   @GenerateSql({ params: [DummyValue.UUID] })
   async ensurePartnerMesh(familyId: string): Promise<void> {
     await sql`
+      with desired as (
+        select a."userId" as "sharedById", b."userId" as "sharedWithId"
+        from "family_member" a
+        join "family_member" b on b."familyId" = a."familyId" and b."userId" != a."userId"
+        where a."familyId" = ${familyId}
+      ),
+      before as (
+        select d."sharedById", d."sharedWithId", p."inTimeline" as "prev", p."sharedById" is not null as "existed"
+        from desired d
+        left join "partner" p on p."sharedById" = d."sharedById" and p."sharedWithId" = d."sharedWithId"
+      ),
+      grants as (
+        insert into "family_partner_grant" ("sharedById", "sharedWithId", "previousInTimeline")
+        select "sharedById", "sharedWithId", case when "existed" then "prev" end
+        from before
+        where not "existed" or not "prev"
+        on conflict ("sharedById", "sharedWithId") do nothing
+      )
       insert into "partner" ("sharedById", "sharedWithId", "inTimeline")
-      select a."userId", b."userId", true
-      from "family_member" a
-      join "family_member" b on b."familyId" = a."familyId" and b."userId" != a."userId"
-      where a."familyId" = ${familyId}
+      select "sharedById", "sharedWithId", true from desired
       on conflict ("sharedById", "sharedWithId") do update set "inTimeline" = true
       where "partner"."inTimeline" = false
     `.execute(this.db);
   }
 
-  /** Removes the partner rows between a leaving member and the rest of the family. */
+  /**
+  Puts the partner rows between a leaving member and the rest of the family back as they were: rows the
+  family created are deleted, rows it switched into the timeline are switched back, and sharing the
+  users set up themselves stays.
+  */
   @GenerateSql({ params: [DummyValue.UUID, [DummyValue.UUID]] })
-  async removePartnerMesh(userId: string, otherIds: string[]): Promise<void> {
+  async removePartnerMesh(userId: string, otherIds: string[], db: Kysely<DB> = this.db): Promise<void> {
     if (otherIds.length === 0) {
       return;
     }
 
-    await this.db
-      .deleteFrom('partner')
-      .where((eb) =>
-        eb.or([
-          eb.and([eb('sharedById', '=', userId), eb('sharedWithId', '=', anyUuid(otherIds))]),
-          eb.and([eb('sharedWithId', '=', userId), eb('sharedById', '=', anyUuid(otherIds))]),
-        ]),
+    await sql`
+      with scope as (
+        select * from "family_partner_grant" g
+        where (g."sharedById" = ${userId} and g."sharedWithId" = ${anyUuid(otherIds)})
+          or (g."sharedWithId" = ${userId} and g."sharedById" = ${anyUuid(otherIds)})
+      ),
+      restored as (
+        update "partner" p set "inTimeline" = false
+        from scope s
+        where s."previousInTimeline" = false and p."sharedById" = s."sharedById" and p."sharedWithId" = s."sharedWithId"
+      ),
+      removed as (
+        delete from "partner" p
+        using scope s
+        where s."previousInTimeline" is null and p."sharedById" = s."sharedById" and p."sharedWithId" = s."sharedWithId"
       )
-      .execute();
+      delete from "family_partner_grant" g
+      using scope s
+      where g."sharedById" = s."sharedById" and g."sharedWithId" = s."sharedWithId"
+    `.execute(db);
   }
 
   /** True when both users are members of the same family (the pair is part of the managed mesh). */
@@ -175,21 +365,42 @@ export class FamilyRepository {
   /**
   Every member is an album user on every album owned by another member: Editor for admins and
   members, Viewer for viewers. Album ownership is the `album_user` row with role `owner`. Existing
-  rows keep their role unless `refreshRoles` is set; owner rows are never touched.
+  rows keep their role unless `refreshRoles` is set; owner rows are never touched. Every row the family
+  creates or changes is recorded in `family_album_grant` with the role it replaced (none for a new row).
   */
   @GenerateSql({ params: [DummyValue.UUID] })
   async ensureAlbumUsers(familyId: string, options: { albumId?: string; refreshRoles?: boolean } = {}) {
     const { albumId, refreshRoles } = options;
     await sql`
+      with desired as (
+        select album."id" as "albumId", m."userId",
+          (case when m."role" = 'viewer' then ${AlbumUserRole.Viewer} else ${AlbumUserRole.Editor} end)::album_user_role_enum as "role"
+        from "album"
+        join "album_user" owner_row on owner_row."albumId" = album."id" and owner_row."role" = ${AlbumUserRole.Owner}
+        join "family_member" owner on owner."userId" = owner_row."userId" and owner."familyId" = ${familyId}
+        join "family_member" m on m."familyId" = ${familyId} and m."userId" != owner_row."userId"
+        where album."deletedAt" is null
+        ${albumId ? sql`and album."id" = ${albumId}` : sql``}
+      ),
+      before as (
+        select d."albumId", d."userId", d."role", au."role" as "prev", au."userId" is not null as "existed"
+        from desired d
+        left join "album_user" au on au."albumId" = d."albumId" and au."userId" = d."userId"
+      ),
+      grants as (
+        insert into "family_album_grant" ("albumId", "userId", "previousRole")
+        select "albumId", "userId", case when "existed" then "prev"::text end
+        from before
+        where not "existed"
+        ${
+          refreshRoles
+            ? sql`or ("prev" != "role" and "prev" != ${AlbumUserRole.Owner})`
+            : sql``
+        }
+        on conflict ("albumId", "userId") do nothing
+      )
       insert into "album_user" ("albumId", "userId", "role")
-      select album."id", m."userId",
-        (case when m."role" = 'viewer' then ${AlbumUserRole.Viewer} else ${AlbumUserRole.Editor} end)::album_user_role_enum
-      from "album"
-      join "album_user" owner_row on owner_row."albumId" = album."id" and owner_row."role" = ${AlbumUserRole.Owner}
-      join "family_member" owner on owner."userId" = owner_row."userId" and owner."familyId" = ${familyId}
-      join "family_member" m on m."familyId" = ${familyId} and m."userId" != owner_row."userId"
-      where album."deletedAt" is null
-      ${albumId ? sql`and album."id" = ${albumId}` : sql``}
+      select "albumId", "userId", "role" from desired
       on conflict ("albumId", "userId") do ${
         refreshRoles
           ? sql`update set "role" = excluded."role" where "album_user"."role" != excluded."role" and "album_user"."role" != ${AlbumUserRole.Owner}`
@@ -198,24 +409,80 @@ export class FamilyRepository {
     `.execute(this.db);
   }
 
-  /** Removes a leaving member from albums owned by the rest of the family, and the family from theirs. */
+  /**
+  Puts album sharing between a leaving member and the rest of the family back as it was: album users
+  the family added are removed, roles it changed are set back, and sharing the album owners set up
+  themselves stays.
+  */
   @GenerateSql({ params: [DummyValue.UUID, [DummyValue.UUID]] })
-  async removeAlbumUsers(userId: string, otherIds: string[]): Promise<void> {
+  async removeAlbumUsers(userId: string, otherIds: string[], db: Kysely<DB> = this.db): Promise<void> {
     if (otherIds.length === 0) {
       return;
     }
 
     await sql`
-      delete from "album_user" au
-      using "album_user" owner_row
-      where owner_row."albumId" = au."albumId"
-        and owner_row."role" = ${AlbumUserRole.Owner}
-        and au."role" != ${AlbumUserRole.Owner}
-        and (
-          (au."userId" = ${userId} and owner_row."userId" = ${anyUuid(otherIds)})
-          or (owner_row."userId" = ${userId} and au."userId" = ${anyUuid(otherIds)})
-        )
-    `.execute(this.db);
+      with scope as (
+        select g.* from "family_album_grant" g
+        join "album_user" owner_row on owner_row."albumId" = g."albumId" and owner_row."role" = ${AlbumUserRole.Owner}
+        where (g."userId" = ${userId} and owner_row."userId" = ${anyUuid(otherIds)})
+          or (owner_row."userId" = ${userId} and g."userId" = ${anyUuid(otherIds)})
+      ),
+      restored as (
+        update "album_user" au set "role" = s."previousRole"::album_user_role_enum
+        from scope s
+        where s."previousRole" is not null and au."albumId" = s."albumId" and au."userId" = s."userId"
+          and au."role" != ${AlbumUserRole.Owner}
+      ),
+      removed as (
+        delete from "album_user" au
+        using scope s
+        where s."previousRole" is null and au."albumId" = s."albumId" and au."userId" = s."userId"
+          and au."role" != ${AlbumUserRole.Owner}
+      )
+      delete from "family_album_grant" g
+      using scope s
+      where g."albumId" = s."albumId" and g."userId" = s."userId"
+    `.execute(db);
+  }
+
+  /**
+  Takes back all sharing the family wrote, whoever is a member: the explicit way to stop the family
+  from managing partner and album sharing (e.g. before running stock Immich again).
+  */
+  async releaseManagedSharing(): Promise<{ partners: number; albumUsers: number }> {
+    return this.db.transaction().execute(async (trx) => {
+      const partners = await sql<{ count: string }>`
+        with restored as (
+          update "partner" p set "inTimeline" = false
+          from "family_partner_grant" g
+          where g."previousInTimeline" = false and p."sharedById" = g."sharedById" and p."sharedWithId" = g."sharedWithId"
+        ),
+        removed as (
+          delete from "partner" p
+          using "family_partner_grant" g
+          where g."previousInTimeline" is null and p."sharedById" = g."sharedById" and p."sharedWithId" = g."sharedWithId"
+        ),
+        cleared as (delete from "family_partner_grant" returning 1)
+        select count(*)::text as count from cleared
+      `.execute(trx);
+      const albumUsers = await sql<{ count: string }>`
+        with restored as (
+          update "album_user" au set "role" = g."previousRole"::album_user_role_enum
+          from "family_album_grant" g
+          where g."previousRole" is not null and au."albumId" = g."albumId" and au."userId" = g."userId"
+            and au."role" != ${AlbumUserRole.Owner}
+        ),
+        removed as (
+          delete from "album_user" au
+          using "family_album_grant" g
+          where g."previousRole" is null and au."albumId" = g."albumId" and au."userId" = g."userId"
+            and au."role" != ${AlbumUserRole.Owner}
+        ),
+        cleared as (delete from "family_album_grant" returning 1)
+        select count(*)::text as count from cleared
+      `.execute(trx);
+      return { partners: Number(partners.rows[0].count), albumUsers: Number(albumUsers.rows[0].count) };
+    });
   }
 
   /**
@@ -484,7 +751,8 @@ export class FamilyRepository {
 
   /**
   Creates the family's shared record for every person group in the family's cluster group that has
-  none yet, taking the name and birth date from the members' own copies: a named copy first, a family
+  none yet, taking the name and birth date from the members' own copies (never a non-member's: a group
+  that only a non-member has a copy of is not imported): a named copy first, a family
   admin's first, one with a birth date first.
   */
   @GenerateSql({ params: [DummyValue.UUID] })
@@ -495,7 +763,7 @@ export class FamilyRepository {
       from "person" p
       join "person_group" pg on pg."id" = p."personGroupId"
       join "family" f on f."clusterGroupId" = pg."clusterGroupId" and f."id" = ${familyId}
-      left join "family_member" m on m."userId" = p."ownerId" and m."familyId" = f."id"
+      join "family_member" m on m."userId" = p."ownerId" and m."familyId" = f."id"
       where not exists (select 1 from "family_person" fp where fp."personGroupId" = p."personGroupId")
       order by p."personGroupId", p."name" = '', m."role" = 'admin' desc, p."birthDate" is null
       on conflict ("personGroupId") do nothing

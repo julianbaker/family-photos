@@ -58,6 +58,7 @@ import { FamilyInviteUseTable } from 'src/family/schema/family-invite-use.table.
 import { FamilyInviteTable } from 'src/family/schema/family-invite.table.js';
 import { FamilyCommentTable } from 'src/family/schema/family-comment.table.js';
 import { FamilyMemberTable } from 'src/family/schema/family-member.table.js';
+import { FamilyAlbumGrantTable, FamilyPartnerGrantTable } from 'src/family/schema/family-sharing-grant.table.js';
 import { FamilyPersonTable } from 'src/family/schema/family-person.table.js';
 import { FamilyPetScanTable } from 'src/family/schema/family-pet-scan.table.js';
 import { FamilyRelationTable } from 'src/family/schema/family-relation.table.js';
@@ -151,6 +152,8 @@ export class ImmichDatabase {
     FamilyRelationTable,
     FamilyCommentTable,
     FamilyAppLoginCodeTable,
+    FamilyPartnerGrantTable,
+    FamilyAlbumGrantTable,
     FaceSearchTable,
     GeodataPlacesTable,
     IntegrityReportTable,
@@ -314,6 +317,8 @@ export interface DB {
   family_relation: FamilyRelationTable;
   family_comment: FamilyCommentTable;
   family_app_login_code: FamilyAppLoginCodeTable;
+  family_partner_grant: FamilyPartnerGrantTable;
+  family_album_grant: FamilyAlbumGrantTable;
 
   session: SessionTable;
   session_sync_checkpoint: SessionSyncCheckpointTable;

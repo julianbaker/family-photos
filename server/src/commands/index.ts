@@ -11,7 +11,7 @@ import { DisablePasswordLoginCommand, EnablePasswordLoginCommand } from 'src/com
 import { PromptPasswordResetQuestions, ResetAdminPasswordCommand } from 'src/commands/reset-admin-password.command.js';
 import { SchemaCheck } from 'src/commands/schema-check.js';
 import { VersionCommand } from 'src/commands/version.command.js';
-import { FamilyAddMemberCommand, FamilySetupCommand } from 'src/family/family-setup.command.js';
+import { FamilyAddMemberCommand, FamilyReleaseSharingCommand, FamilySetupCommand } from 'src/family/family-setup.command.js';
 
 export const commandsAndQuestions = [
   ResetAdminPasswordCommand,
@@ -34,4 +34,5 @@ export const commandsAndQuestions = [
   // family fork
   FamilySetupCommand,
   FamilyAddMemberCommand,
+  FamilyReleaseSharingCommand,
 ];

@@ -43,25 +43,21 @@ export class FamilyService extends BaseService {
       throw new BadRequestException('User not found');
     }
 
-    const family = await this.familyRepository.createFamily(user.clusterGroupId, dto.name);
-    await this.familyRepository.addMember({
-      userId: user.id,
-      familyId: family.id,
-      role: FamilyRole.Admin,
-      addedById: user.id,
-    });
-    // the admin's named people (names, birth dates) become the family's
-    await this.familyRepository.seedFamilyPeople(family.id);
-    await this.familyRepository.mirrorFamilyPeople(family.id);
-    await this.familyRepository.addHistory({
-      familyId: family.id,
-      userId: user.id,
-      action: FamilyHistoryAction.FamilyCreate,
-      entityType: 'family',
-      entityId: family.id,
-      before: null,
-      after: { name: family.name },
-    });
+    // the family reuses the admin's cluster group, so everyone in it must be going into the family:
+    // stop with a diagnostic instead of importing a non-member's people
+    const outsiders = await this.familyRepository.getClusterOutsiders(user.clusterGroupId);
+    const others = outsiders.filter((outsider) => outsider.id !== user.id);
+    if (others.length > 0) {
+      throw new BadRequestException(
+        `The face-recognition group of ${user.email} is shared with ${others.map((outsider) => outsider.email).join(', ')}, who would not be in the family. ` +
+          `Ask them to leave the group (People, Leave group) or add them to the family, then set up the family again.`,
+      );
+    }
+
+    // family, first admin and history in one transaction: a failure leaves nothing that blocks a retry
+    const family = await this.familyRepository.createFamilyWithAdmin(user.clusterGroupId, dto.name, user.id);
+    // the admin's named people (names, birth dates) become the family's; repeated at startup and by setup
+    await this.reconcileSharing(family.id);
 
     return this.mapFamily({ familyId: family.id, clusterGroupId: family.clusterGroupId, role: FamilyRole.Admin });
   }
@@ -92,6 +88,16 @@ export class FamilyService extends BaseService {
     await this.familyRepository.seedFamilyPeople(membership.familyId);
     await this.familyRepository.mirrorFamilyPeople(membership.familyId);
     return this.familyRepository.getReport(membership.familyId);
+  }
+
+  /**
+  For `immich-admin family-release-sharing`: takes back the partner and album sharing the family wrote,
+  restoring what existed before (rows the users made themselves stay). The explicit way out of managed
+  sharing, e.g. before going back to stock Immich; while the family features run, startup writes the
+  sharing again.
+  */
+  releaseSharingFromCli() {
+    return this.familyRepository.releaseManagedSharing();
   }
 
   /** For `immich-admin family-add-member`: brings an existing account into the family. */
@@ -128,31 +134,17 @@ export class FamilyService extends BaseService {
 
   async updateMember(auth: AuthDto, userId: string, dto: FamilyMemberUpdateDto): Promise<FamilyResponseDto> {
     const membership = await this.requireFamilyAdmin(auth);
-    const members = await this.familyRepository.getMembers(membership.familyId);
-    const member = members.find((item) => item.userId === userId);
-    if (!member) {
+    // checked and written under a lock on the family: two admins cannot both demote themselves
+    const change = await this.familyRepository.changeMemberRole(membership.familyId, userId, dto.role, auth.user.id);
+    if (change.result === 'not-a-member') {
       throw new BadRequestException('Not a member of this family');
     }
-
-    if (member.role === dto.role) {
-      return this.mapFamily(membership);
-    }
-
-    if (member.role === FamilyRole.Admin && this.countAdmins(members) === 1) {
+    if (change.result === 'last-admin') {
       throw new BadRequestException('The family needs at least one admin');
     }
-
-    await this.familyRepository.updateRole(userId, dto.role);
-    await this.familyRepository.ensureAlbumUsers(membership.familyId, { refreshRoles: true });
-    await this.familyRepository.addHistory({
-      familyId: membership.familyId,
-      userId: auth.user.id,
-      action: FamilyHistoryAction.MemberRoleUpdate,
-      entityType: 'user',
-      entityId: userId,
-      before: { role: member.role },
-      after: { role: dto.role },
-    });
+    if (change.result === 'changed') {
+      await this.reconcileSharing(membership.familyId, { refreshRoles: true });
+    }
 
     // the caller may have changed their own role
     const updated = userId === auth.user.id ? { ...membership, role: dto.role } : membership;
@@ -161,35 +153,19 @@ export class FamilyService extends BaseService {
 
   async removeMember(auth: AuthDto, userId: string): Promise<void> {
     const membership = await this.requireFamilyAdmin(auth);
-    const members = await this.familyRepository.getMembers(membership.familyId);
-    const member = members.find((item) => item.userId === userId);
-    if (!member) {
+    // one transaction under a lock on the family: sharing the family wrote is restored, the
+    // membership goes, and the last admin can never be removed
+    const removal = await this.familyRepository.removeMemberChecked(membership.familyId, userId, auth.user.id);
+    if (removal.result === 'not-a-member') {
       throw new BadRequestException('Not a member of this family');
     }
-
-    if (member.role === FamilyRole.Admin && this.countAdmins(members) === 1) {
+    if (removal.result === 'last-admin') {
       throw new BadRequestException('The family needs at least one admin');
     }
 
-    const otherIds = members.map((item) => item.userId).filter((id) => id !== userId);
-    await this.familyRepository.removePartnerMesh(userId, otherIds);
-    await this.familyRepository.removeAlbumUsers(userId, otherIds);
-    await this.familyRepository.removeMember(userId);
-
-    // like leaving a cluster group: the user's people move to a new group of their own
-    const clusterGroup = await this.clusterGroupRepository.create();
-    await this.personRepository.reassignCluster({ userId, newClusterId: clusterGroup.id });
-    await this.userRepository.update(userId, { clusterGroupId: clusterGroup.id });
-
-    await this.familyRepository.addHistory({
-      familyId: membership.familyId,
-      userId: auth.user.id,
-      action: FamilyHistoryAction.MemberRemove,
-      entityType: 'user',
-      entityId: userId,
-      before: { role: member.role },
-      after: null,
-    });
+    // like leaving a cluster group: the user's people move to a new group of their own. If this fails
+    // the next startup finds the user outside the family in its cluster group and does it again.
+    await this.isolateUser(userId);
   }
 
   async getHistory(auth: AuthDto, dto: FamilyHistoryQueryDto): Promise<FamilyHistoryResponseDto[]> {
@@ -218,21 +194,39 @@ export class FamilyService extends BaseService {
       await this.userRepository.update(userId, { clusterGroupId: membership.clusterGroupId });
     }
 
-    await this.familyRepository.addMember({ userId, familyId: membership.familyId, role, addedById: actor.userId });
-    await this.familyRepository.ensurePartnerMesh(membership.familyId);
-    await this.familyRepository.ensureAlbumUsers(membership.familyId);
-    // the new member's people join the family's, and they get the family's names
-    await this.familyRepository.seedFamilyPeople(membership.familyId);
-    await this.familyRepository.mirrorFamilyPeople(membership.familyId);
-    await this.familyRepository.addHistory({
-      familyId: membership.familyId,
-      userId: actor.userId,
-      action: FamilyHistoryAction.MemberAdd,
-      entityType: 'user',
-      entityId: userId,
-      before: null,
-      after: { role },
-    });
+    // membership and history in one transaction, as the last step that can fail: whatever happens
+    // before it can simply be retried, and what follows is repaired by `reconcileSharing`
+    const added = await this.familyRepository.addMemberWithHistory(
+      { userId, familyId: membership.familyId, role, addedById: actor.userId },
+      actor.userId,
+    );
+    if (!added) {
+      throw new BadRequestException('User is already in a family');
+    }
+    await this.reconcileSharing(membership.familyId);
+  }
+
+  /**
+  Brings the managed sharing and shared people up to date with the members. Every step is repeatable, a
+  failure is logged and does not undo the membership change, and startup runs it again.
+  */
+  private async reconcileSharing(familyId: string, options: { refreshRoles?: boolean } = {}) {
+    try {
+      await this.familyRepository.ensurePartnerMesh(familyId);
+      await this.familyRepository.ensureAlbumUsers(familyId, options);
+      // new members' people join the family's, and they get the family's names
+      await this.familyRepository.seedFamilyPeople(familyId);
+      await this.familyRepository.mirrorFamilyPeople(familyId);
+    } catch (error) {
+      this.logger.error(`Family sharing could not be brought up to date (it is retried at startup): ${error}`);
+    }
+  }
+
+  /** Gives a user who is no longer a member a cluster group of their own, with their people. */
+  private async isolateUser(userId: string) {
+    const clusterGroup = await this.clusterGroupRepository.create();
+    await this.personRepository.reassignCluster({ userId, newClusterId: clusterGroup.id });
+    await this.userRepository.update(userId, { clusterGroupId: clusterGroup.id });
   }
 
   /** Repairs the managed sharing at startup, e.g. after a restore or a partner row removed by hand. */
@@ -247,8 +241,13 @@ export class FamilyService extends BaseService {
       return;
     }
 
-    await this.familyRepository.ensurePartnerMesh(family.id);
-    await this.familyRepository.ensureAlbumUsers(family.id);
+    await this.reconcileSharing(family.id);
+
+    // anyone left in the family's cluster group without being a member (a removal that stopped halfway)
+    for (const outsider of await this.familyRepository.getClusterOutsiders(family.clusterGroupId)) {
+      this.logger.warn(`Moving ${outsider.email} out of the family's face-recognition group`);
+      await this.isolateUser(outsider.id);
+    }
   }
 
   @OnEvent({ name: 'AlbumCreate' })
@@ -306,7 +305,11 @@ export class FamilyService extends BaseService {
 
   /** Public: the website shows the wordmark on the sign-in page, before anyone signs in. */
   async getBranding(): Promise<FamilyBrandingResponseDto> {
-    const family = isFamilyEnabled() ? await this.familyRepository.getAnyFamily() : undefined;
+    // without the family features the site shows stock Immich branding: an empty wordmark says so
+    if (!isFamilyEnabled()) {
+      return { wordmark: '', appUrl: null };
+    }
+    const family = await this.familyRepository.getAnyFamily();
     // the same app link the invite page shows, for pages that have no invite (a sign-in link opened
     // on a computer, or on a phone without the app)
     return { wordmark: family?.wordmark?.trim() || 'sibred', appUrl: process.env.IMMICH_FAMILY_APP_URL || null };
@@ -318,10 +321,6 @@ export class FamilyService extends BaseService {
       throw new ForbiddenException('Only a family admin can do this');
     }
     return membership;
-  }
-
-  private countAdmins(members: Array<{ role: FamilyRole }>) {
-    return members.filter((member) => member.role === FamilyRole.Admin).length;
   }
 
   private async mapFamily(membership: FamilyMembership): Promise<FamilyResponseDto> {
