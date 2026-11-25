@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import { AssetEditAction, MirrorAxis } from 'src/dtos/editing.dto.js';
 import { AssetFaceCreateDto, PersonSearchDto, PersonUserRole } from 'src/dtos/person.dto.js';
 import { AssetFileType, JobName } from 'src/enum.js';
+import { FamilyRepository } from 'src/family/family.repository.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { AssetEditRepository } from 'src/repositories/asset-edit.repository.js';
 import { AssetJobRepository } from 'src/repositories/asset-job.repository.js';
@@ -34,6 +35,8 @@ const setup = (db?: Kysely<DB>) => {
     real: [
       AccessRepository,
       AssetJobRepository,
+      // sibred: person clean-up always asks the family which people to keep
+      FamilyRepository,
       ConfigRepository,
       DatabaseRepository,
       PersonRepository,

@@ -78,7 +78,9 @@ const granted = async (
   permission: Permission,
   id: string,
 ) => {
-  const allowed = await checkAccess(access, { auth, permission, ids: [id] });
+  // editing and trashing other members' photos is opt-in per caller (familyGrant), as the asset service does
+  const familyGrant = permission === Permission.AssetUpdate || permission === Permission.AssetDelete;
+  const allowed = await checkAccess(access, { auth, permission, ids: [id], familyGrant });
   return allowed.has(id);
 };
 

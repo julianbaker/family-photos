@@ -315,9 +315,12 @@ describe(FamilyPeopleService.name, () => {
       const setupResult = setup();
       const { ctx, stockPeople } = setupResult;
       const { admin, memberAuth, amyId } = await newFamily(setupResult);
+      // the picture is a crop of Amy's face in a photo the family can see
+      const { asset } = await ctx.newAsset({ ownerId: admin.id });
+      const { assetFace } = await ctx.newAssetFace({ assetId: asset.id, personGroupId: amyId });
       await ctx.database
         .updateTable('person')
-        .set({ thumbnailPath: '/thumbs/amy.jpeg' })
+        .set({ thumbnailPath: '/thumbs/amy.jpeg', faceAssetId: assetFace.id })
         .where('ownerId', '=', admin.id)
         .where('personGroupId', '=', amyId)
         .execute();
@@ -423,7 +426,7 @@ describe(FamilyPeopleService.name, () => {
       const before = await familyPeopleCount(ctx);
 
       await expect(sut.addRelative(memberAuth, rex.personId, { kind: 'owner', newName: 'Carol' })).rejects.toThrow(
-        'two owners',
+        'two companions',
       );
       expect(await familyPeopleCount(ctx)).toEqual(before);
     });
@@ -452,9 +455,9 @@ describe(FamilyPeopleService.name, () => {
       const alice = await sut.create(memberAuth, { name: 'Alice' });
       const rex = await sut.create(memberAuth, { name: 'Rex', kind: 'pet' });
       await expect(sut.addRelative(memberAuth, alice.id, { kind: 'owner', existingId: rex.id })).rejects.toThrow(
-        'Only a pet has owners',
+        'Only a pet has companions',
       );
-      await expect(sut.addRelative(memberAuth, rex.id, { kind: 'sibling', newName: 'Spot' })).rejects.toThrow('owners');
+      await expect(sut.addRelative(memberAuth, rex.id, { kind: 'sibling', newName: 'Spot' })).rejects.toThrow('companions');
     });
   });
 
@@ -598,17 +601,21 @@ describe(FamilyPeopleService.name, () => {
       expect(people).toEqual([expect.objectContaining({ personId: amyId, name: 'Amy', age: 25 })]);
     });
 
-    it('lets members comment and authors or admins delete, but not viewers comment', async () => {
+    it('lets everyone comment, viewers included, and authors or admins delete', async () => {
       const setupResult = setup();
       const { admin, memberAuth, viewerAuth, adminAuth } = await newFamily(setupResult);
       const { asset } = await setupResult.ctx.newAsset({ ownerId: admin.id });
 
       const comment = await setupResult.sut.createComment(memberAuth, asset.id, { text: 'Look at that hat!' });
-      await expect(setupResult.sut.createComment(viewerAuth, asset.id, { text: 'Hi' })).rejects.toThrow(
-        'Viewers can look',
-      );
+      const viewerComment = await setupResult.sut.createComment(viewerAuth, asset.id, { text: 'Hi' });
       const asViewer = await setupResult.sut.getComments(viewerAuth, asset.id);
-      expect(asViewer).toEqual([expect.objectContaining({ text: 'Look at that hat!', canDelete: false })]);
+      expect(asViewer).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ text: 'Look at that hat!', canDelete: false }),
+          expect.objectContaining({ text: 'Hi', canDelete: true }),
+        ]),
+      );
+      await setupResult.sut.deleteComment(viewerAuth, viewerComment.id);
 
       await expect(setupResult.sut.deleteComment(viewerAuth, comment.id)).rejects.toThrow('Only the author');
       await setupResult.sut.deleteComment(adminAuth, comment.id);

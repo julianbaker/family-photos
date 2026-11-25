@@ -507,11 +507,16 @@ export class DatabaseRepository {
   sort before the fork's already-applied ones, and those must still run.
   */
   async hasForkMigrations(): Promise<boolean> {
+    // two steps: Postgres resolves table names when it plans a query, so a fresh database (no migrations
+    // table yet) must be detected before the table is mentioned at all
+    const { rows: table } = await sql<{ exists: boolean }>`
+      select to_regclass('kysely_migrations') is not null as exists
+    `.execute(this.db);
+    if (!table[0]?.exists) {
+      return false;
+    }
     const { rows } = await sql<{ installed: boolean }>`
-      select case
-        when to_regclass('kysely_migrations') is null then false
-        else exists (select 1 from "kysely_migrations" where "name" like ${'%Family%'})
-      end as installed
+      select exists (select 1 from "kysely_migrations" where "name" like ${'%Family%'}) as installed
     `.execute(this.db);
     return rows[0]?.installed ?? false;
   }

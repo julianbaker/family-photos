@@ -86,18 +86,18 @@ describe(FamilyService.name, () => {
       const { user: member } = await ctx.newUser();
       await sut.addMember(adminAuth, { userId: member.id, role: FamilyRole.Member });
 
-      expect(await sut.getBranding()).toEqual({ wordmark: 'sibred' });
+      expect(await sut.getBranding()).toEqual({ wordmark: 'sibred', appUrl: null });
 
       const updated = await sut.update(adminAuth, { wordmark: '  The Bakers  ', name: 'Baker family' });
       expect(updated).toEqual(expect.objectContaining({ id: family.id, name: 'Baker family', wordmark: 'The Bakers' }));
-      expect(await sut.getBranding()).toEqual({ wordmark: 'The Bakers' });
+      expect(await sut.getBranding()).toEqual({ wordmark: 'The Bakers', appUrl: null });
 
       await expect(sut.update(factory.auth({ user: member }), { wordmark: 'Mine' })).rejects.toThrow(
         'Only a family admin',
       );
 
       await sut.update(adminAuth, { wordmark: '' });
-      expect(await sut.getBranding()).toEqual({ wordmark: 'sibred' });
+      expect(await sut.getBranding()).toEqual({ wordmark: 'sibred', appUrl: null });
     });
   });
 
