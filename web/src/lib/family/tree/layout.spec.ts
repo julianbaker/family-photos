@@ -299,6 +299,23 @@ describe('the wider family', () => {
     expectNoOverlaps(layout);
   });
 
+  it("shows a partner's children as stepchildren under the couple, with dashed lines", () => {
+    const graph = buildGraph(people(['Laura', 'female'], ['Chris', 'male'], ['Jill', 'female'], ['Zane', 'male']), [
+      { id: 'c1', personId: 'Laura', relatedPersonId: 'Chris', type: 'spouse', qualifier: null },
+      parent('Laura', 'Jill'),
+      parent('Chris', 'Jill'),
+      parent('Chris', 'Zane'),
+    ]);
+    const layout = layoutTree(graph, 'Laura');
+    expect(tile(layout, 'Zane').generation).toBe(1);
+    expect(tile(layout, 'Jill').generation).toBe(1);
+    const zaneX = tile(layout, 'Zane').x;
+    expect(layout.lines.some((line) => line.dashed && line.points.at(-1)?.[0] === zaneX)).toBe(true);
+    const jillX = tile(layout, 'Jill').x;
+    expect(layout.lines.some((line) => line.dashed && line.points.at(-1)?.[0] === jillX)).toBe(false);
+    expectNoOverlaps(layout);
+  });
+
   it('leaves pets out of the wider family', () => {
     const graph = buildGraph(
       people(['Gran', 'female'], ['Dad', 'male'], ['Me', 'male'], ['Rex'], ['Sis', 'female'], ['Cat']),

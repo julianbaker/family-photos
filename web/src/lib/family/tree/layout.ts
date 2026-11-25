@@ -422,7 +422,17 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
       kids.reduce((sum, child) => sum + unitsBelow(child, depth + 1, next), 0),
     );
   };
-  const focusKids = down > 0 ? childrenOf(graph, focusId) : [];
+  // the focus's children, and their current partners' children too (stepchildren, drawn dashed)
+  const ownKids = down > 0 ? childrenOf(graph, focusId) : [];
+  const stepKids =
+    down > 0
+      ? partners
+          .filter((partner) => !graph.partners.get(focusId)?.get(partner)?.former)
+          .flatMap((partner) => childrenOf(graph, partner))
+          .filter((kid) => kid !== focusId && !isPet(kid) && !ownKids.includes(kid))
+      : [];
+  const focusKids = [...ownKids, ...new Set(stepKids)];
+  const dashedFocusKids = new Set(stepKids);
   const kidGroups: Array<{ anchor: number; startY: number; kids: string[]; left: number; width: number }> = [];
   {
     const remaining = new Set(focusKids);
@@ -688,7 +698,7 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
               [center, elbowY],
               [center, barY],
             ];
-      placeChildren(group.kids, center, 0, 1, new Set([focusId]), stem);
+      placeChildren(group.kids, center, 0, 1, new Set([focusId]), stem, true, dashedFocusKids);
     }
     // the siblings' (and the partner's siblings') children, one row under each; stepchildren dashed
     for (const sibling of [...siblings, ...inLawSiblings]) {
