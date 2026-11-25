@@ -117,7 +117,25 @@ from
   and m."userId" != owner_row."userId"
 where
   album."deletedAt" is null
-on conflict ("albumId", "userId") do nothing
+on conflict ("albumId", "userId") do
+update
+set
+  "role" = excluded."role"
+where
+  "album_user"."role" != $6
+  and excluded."role" = $7
+  and "album_user"."role" != $8
+
+-- FamilyRepository.getViewersInOwnerFamily
+select
+  "member"."userId"
+from
+  "family_member" as "owner"
+  inner join "family_member" as "member" on "member"."familyId" = "owner"."familyId"
+where
+  "owner"."userId" = $1
+  and "member"."role" = $2
+  and "member"."userId" = any ($3::uuid[])
 
 -- FamilyRepository.removeAlbumUsers
 delete from "album_user" au using "album_user" owner_row
@@ -477,8 +495,24 @@ where
   and "family_person"."familyId" = $2
   and "person"."personGroupId" = $3
   and "person"."thumbnailPath" != $4
+  and exists (
+    select
+      1
+    from
+      "asset_face" sf
+      join "asset" sa on sa."id" = sf."assetId"
+      join "family_member" sm on sm."userId" = sa."ownerId"
+      and sm."familyId" = $5
+    where
+      sf."id" = "person"."faceAssetId"
+      and sf."personGroupId" = "person"."personGroupId"
+      and sf."deletedAt" is null
+      and sf."isVisible" is true
+      and sa."deletedAt" is null
+      and sa."visibility" in ('timeline', 'archive')
+  )
 limit
-  $5
+  $6
 
 -- FamilyRepository.getRelations
 select
@@ -613,6 +647,61 @@ from
   "family" f
 where
   f."id" = $1
+
+-- FamilyRepository.clearPrivateCovers
+with
+  stale as (
+    select
+      p."ownerId",
+      p."personGroupId",
+      p."thumbnailPath"
+    from
+      "person" p
+      join "family_member" pm on pm."userId" = p."ownerId"
+      and pm."familyId" = $1
+      join "family_person" fp on fp."personGroupId" = p."personGroupId"
+      and fp."familyId" = $2
+    where
+      (
+        p."faceAssetId" is not null
+        or p."thumbnailPath" != ''
+      )
+      and not exists (
+        select
+          1
+        from
+          "asset_face" sf
+          join "asset" sa on sa."id" = sf."assetId"
+          join "family_member" sm on sm."userId" = sa."ownerId"
+          and sm."familyId" = $3
+        where
+          sf."id" = "p"."faceAssetId"
+          and sf."personGroupId" = "p"."personGroupId"
+          and sf."deletedAt" is null
+          and sf."isVisible" is true
+          and sa."deletedAt" is null
+          and sa."visibility" in ('timeline', 'archive')
+      )
+  ),
+  cleared as (
+    update "person"
+    set
+      "faceAssetId" = null,
+      "thumbnailPath" = ''
+    from
+      stale
+    where
+      "person"."ownerId" = stale."ownerId"
+      and "person"."personGroupId" = stale."personGroupId"
+    returning
+      1
+  )
+select
+  "thumbnailPath"
+from
+  stale
+where
+  "thumbnailPath" != ''
 
 -- FamilyRepository.getPeopleWithoutCover
 select

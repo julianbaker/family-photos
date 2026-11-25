@@ -120,6 +120,9 @@ export class AlbumService extends BaseService {
 
     const userMetadata = await this.userRepository.getMetadata(auth.user.id);
 
+    // family fork: viewers are viewers in albums too
+    const familyAlbumUsers = await this.capFamilyViewers(auth.user.id, albumUsers);
+
     const album = await this.albumRepository.create(
       {
         albumName: dto.albumName,
@@ -128,7 +131,7 @@ export class AlbumService extends BaseService {
         order: getPreferences(userMetadata).albums.defaultAssetOrder,
       },
       assetIds,
-      [{ userId: auth.user.id, role: AlbumUserRole.Owner }, ...albumUsers],
+      [{ userId: auth.user.id, role: AlbumUserRole.Owner }, ...familyAlbumUsers],
       auth.user.id,
     );
 
@@ -312,7 +315,9 @@ export class AlbumService extends BaseService {
         throw new BadRequestException('Invalid user');
       }
 
-      await this.albumUserRepository.create({ userId, albumId: id, role });
+      const owner = album.albumUsers.find(({ role }) => role === AlbumUserRole.Owner);
+      const [capped] = await this.capFamilyViewers(owner?.user.id ?? auth.user.id, [{ userId, role }]);
+      await this.albumUserRepository.create({ userId, albumId: id, role: capped.role });
       await this.eventRepository.emit('AlbumInvite', { id, userId, senderName: auth.user.name });
     }
 
@@ -356,7 +361,24 @@ export class AlbumService extends BaseService {
       throw new BadRequestException('User is owner');
     }
 
-    await this.albumUserRepository.update({ albumId: id, userId }, { role: dto.role });
+    // family fork: viewers are viewers in albums too
+    const [{ role }] = await this.capFamilyViewers(owner.user.id, [{ userId, role: dto.role }]);
+    await this.albumUserRepository.update({ albumId: id, userId }, { role });
+  }
+
+  /** Family fork: a family Viewer is never an editor of a family member's album. */
+  private async capFamilyViewers<T extends { userId: string; role?: AlbumUserRole }>(
+    ownerId: string,
+    albumUsers: T[],
+  ): Promise<T[]> {
+    if (!isFamilyEnabled() || albumUsers.length === 0) {
+      return albumUsers;
+    }
+    const viewers = await this.familyRepository.getViewersInOwnerFamily(
+      ownerId,
+      albumUsers.map(({ userId }) => userId),
+    );
+    return albumUsers.map((item) => (viewers.has(item.userId) ? { ...item, role: AlbumUserRole.Viewer } : item));
   }
 
   private findOrFail(id: string, authUserId: string) {

@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { AuthDto } from 'src/dtos/auth.dto.js';
+import { AssetVisibility } from 'src/enum.js';
+import { FAMILY_VISIBILITIES } from 'src/family/family-access.js';
 import { FamilyHistoryAction } from 'src/family/family.enum.js';
 import { isFamilyEnabled } from 'src/family/family.flag.js';
 import { FamilyRepository } from 'src/family/family.repository.js';
@@ -30,20 +32,26 @@ type Deps = { access: AccessRepository; family: FamilyRepository };
 const pick = (source: Record<string, unknown>, fields: readonly string[]) =>
   Object.fromEntries(fields.filter((field) => source[field] !== undefined).map((field) => [field, source[field]]));
 
+const noRecord = () => Promise.resolve();
+
 /**
 Runs before a photo update. Family members can edit each other's photos (dates, places, captions),
 but favourites, archive, hidden/locked, ratings, Live Photo links and duplicate choices belong to
-the owner, so changing those on someone else's photo is refused. Every edit by a family member is
-recorded in the family history with the values before and after.
+the owner, so changing those on someone else's photo is refused.
+
+Returns the function that records the edit in the family history (the values before and after). The
+caller runs it once the change has succeeded, so a failed edit leaves no entry. Only photos the family
+shares are recorded, each one on its own: a Locked, hidden or trashed photo's metadata never reaches
+the history (admins read it), and neither does a photo the edit itself moves out of the family's view.
 */
 export const familyBeforeAssetUpdate = async (
   { access, family }: Deps,
   auth: AuthDto,
   ids: string[],
   dto: AssetUpdateFields,
-): Promise<void> => {
+): Promise<() => Promise<void>> => {
   if (!isFamilyEnabled() || ids.length === 0) {
-    return;
+    return noRecord;
   }
 
   const ownerOnly = OWNER_ONLY_FIELDS.filter((field) => dto[field] !== undefined);
@@ -57,21 +65,30 @@ export const familyBeforeAssetUpdate = async (
   const membership = await family.getMembership(auth.user.id);
   const after = pick(dto, HISTORY_FIELDS);
   if (!membership || Object.keys(after).length === 0) {
-    return;
+    return noRecord;
   }
 
-  const snapshots = await family.getAssetSnapshots(ids);
-  await family.addHistoryMany(
-    snapshots.map((snapshot) => ({
-      familyId: membership.familyId,
-      userId: auth.user.id,
-      action: FamilyHistoryAction.AssetUpdate,
-      entityType: 'asset',
-      entityId: snapshot.id,
-      before: pick(snapshot, Object.keys(after)),
-      after,
-    })),
-  );
+  // an edit that moves a photo to the Locked folder takes it out of the family's view: nothing is recorded
+  const staysVisible = dto.visibility === undefined || FAMILY_VISIBILITIES.includes(dto.visibility as AssetVisibility);
+  const visible = staysVisible ? await family.getFamilyAssetIds(membership.familyId, ids) : new Set<string>();
+  if (visible.size === 0) {
+    return noRecord;
+  }
+
+  const current = await family.getAssetSnapshots(ids);
+  const snapshots = current.filter((snapshot) => visible.has(snapshot.id));
+  return () =>
+    family.addHistoryMany(
+      snapshots.map((snapshot) => ({
+        familyId: membership.familyId,
+        userId: auth.user.id,
+        action: FamilyHistoryAction.AssetUpdate,
+        entityType: 'asset',
+        entityId: snapshot.id,
+        before: pick(snapshot, Object.keys(after)),
+        after,
+      })),
+    );
 };
 
 /**

@@ -5,6 +5,7 @@ import { AuthDto } from 'src/dtos/auth.dto.js';
 import { TrashResponseDto } from 'src/dtos/trash.dto.js';
 import { JobName, JobStatus, Permission, QueueName } from 'src/enum.js';
 import { BaseService } from 'src/services/base.service.js';
+import { requireFamilyWriter } from 'src/utils/access.js';
 import { batched } from 'src/utils/misc.js';
 
 @Injectable()
@@ -25,6 +26,7 @@ export class TrashService extends BaseService {
   }
 
   async restore(auth: AuthDto): Promise<TrashResponseDto> {
+    await requireFamilyWriter(this.accessRepository, auth);
     const count = await this.trashRepository.restore(auth.user.id);
     if (count > 0) {
       this.logger.log(`Restored ${count} asset(s) from trash`);
@@ -33,6 +35,8 @@ export class TrashService extends BaseService {
   }
 
   async empty(auth: AuthDto): Promise<TrashResponseDto> {
+    // family fork: emptying the trash deletes for good, which a Viewer may not do
+    await requireFamilyWriter(this.accessRepository, auth);
     const count = await this.trashRepository.empty(auth.user.id);
     if (count > 0) {
       await this.jobRepository.queue({ name: JobName.AssetEmptyTrash, data: {} });

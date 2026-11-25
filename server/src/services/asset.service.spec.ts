@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { AssetJobName, AssetStatsResponseDto } from 'src/dtos/asset.dto.js';
 import { AssetEditAction } from 'src/dtos/editing.dto.js';
@@ -11,6 +11,7 @@ import {
   JobName,
   JobStatus,
 } from 'src/enum.js';
+import { FamilyRole } from 'src/family/family.enum.js';
 import { AssetStats } from 'src/repositories/asset.repository.js';
 import { AssetService } from 'src/services/asset.service.js';
 import { AssetFactory } from 'test/factories/asset.factory.js';
@@ -193,6 +194,117 @@ describe(AssetService.name, () => {
         authStub.admin.user.id,
         expect.objectContaining({ id: asset.id }),
       );
+    });
+
+    describe('family history', () => {
+      const familyId = 'family-1';
+      beforeEach(() => {
+        process.env.IMMICH_FAMILY_ENABLED = 'true';
+        mocks.family.getMembership.mockResolvedValue({ familyId, clusterGroupId: 'cg', role: FamilyRole.Member });
+        mocks.family.clearPrivateCovers.mockResolvedValue([]);
+        mocks.family.getPeopleWithoutCover.mockResolvedValue([]);
+      });
+      afterEach(() => {
+        delete process.env.IMMICH_FAMILY_ENABLED;
+      });
+
+      it('should record an edit only after it went through', async () => {
+        const asset = AssetFactory.create();
+        mocks.access.family.checkAssetEditAccess.mockResolvedValue(new Set([asset.id]));
+        mocks.family.getFamilyAssetIds.mockResolvedValue(new Set([asset.id]));
+        mocks.family.getAssetSnapshots.mockResolvedValue([{ id: asset.id, description: 'old' }] as never);
+        mocks.asset.getById.mockResolvedValue(getForAsset(asset));
+        mocks.asset.update.mockResolvedValue(undefined as never);
+
+        await expect(sut.update(authStub.admin, asset.id, { description: 'new' })).rejects.toBeInstanceOf(
+          BadRequestException,
+        );
+        expect(mocks.family.addHistoryMany).not.toHaveBeenCalled();
+      });
+
+      it('should record the edit once it succeeded', async () => {
+        const asset = AssetFactory.create();
+        mocks.access.family.checkAssetEditAccess.mockResolvedValue(new Set([asset.id]));
+        mocks.access.family.checkAssetReadAccess.mockResolvedValue(new Set([asset.id]));
+        mocks.family.getFamilyAssetIds.mockResolvedValue(new Set([asset.id]));
+        mocks.family.getAssetSnapshots.mockResolvedValue([{ id: asset.id, description: 'old' }] as never);
+        mocks.asset.getById.mockResolvedValue(getForAsset(asset));
+        mocks.asset.update.mockResolvedValue(getForAsset(asset));
+
+        await sut.update(authStub.admin, asset.id, { description: 'new' });
+
+        expect(mocks.family.addHistoryMany).toHaveBeenCalledWith([
+          expect.objectContaining({
+            entityId: asset.id,
+            before: { description: 'old' },
+            after: { description: 'new' },
+          }),
+        ]);
+      });
+
+      it('should leave a locked photo out of the history', async () => {
+        const asset = AssetFactory.create();
+        mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set([asset.id]));
+        mocks.family.getFamilyAssetIds.mockResolvedValue(new Set());
+        mocks.asset.getById.mockResolvedValue(getForAsset(asset));
+        mocks.asset.update.mockResolvedValue(getForAsset(asset));
+
+        await sut.update(authStub.admin, asset.id, { description: 'secret' });
+
+        expect(mocks.family.getAssetSnapshots).not.toHaveBeenCalled();
+        expect(mocks.family.addHistoryMany).not.toHaveBeenCalled();
+      });
+
+      it('should record only the family photos of a bulk edit', async () => {
+        mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['a1', 'a2']));
+        mocks.family.getFamilyAssetIds.mockResolvedValue(new Set(['a1']));
+        mocks.family.getAssetSnapshots.mockResolvedValue([
+          { id: 'a1', description: 'x' },
+          { id: 'a2', description: 'private' },
+        ] as never);
+        mocks.asset.getByIds.mockResolvedValue([]);
+
+        await sut.updateAll(authStub.admin, { ids: ['a1', 'a2'], description: 'new' });
+
+        const entries = mocks.family.addHistoryMany.mock.calls[0][0];
+        expect(entries.map(({ entityId }) => entityId)).toEqual(['a1']);
+      });
+
+      it('should not record a photo that the edit moves to the Locked folder', async () => {
+        mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['a1']));
+        mocks.family.getFamilyAssetIds.mockResolvedValue(new Set(['a1']));
+        mocks.asset.getByIds.mockResolvedValue([]);
+
+        await sut.updateAll(authStub.admin, { ids: ['a1'], visibility: AssetVisibility.Locked, description: 'x' });
+
+        expect(mocks.family.addHistoryMany).not.toHaveBeenCalled();
+      });
+
+      it('should forget covers cut from a photo that went Locked', async () => {
+        mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['a1']));
+        mocks.asset.getByIds.mockResolvedValue([]);
+        mocks.family.clearPrivateCovers.mockResolvedValue([]);
+        mocks.family.getPeopleWithoutCover.mockResolvedValue([]);
+
+        await sut.updateAll(authStub.admin, { ids: ['a1'], visibility: AssetVisibility.Locked });
+
+        expect(mocks.family.clearPrivateCovers).toHaveBeenCalledWith(familyId, undefined);
+      });
+
+      it('should refuse a viewer, even on a photo they own', async () => {
+        const asset = AssetFactory.create();
+        mocks.access.family.isViewer.mockResolvedValue(true);
+        mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set([asset.id]));
+
+        await expect(sut.update(authStub.admin, asset.id, { description: 'new' })).rejects.toBeInstanceOf(
+          ForbiddenException,
+        );
+        await expect(sut.deleteAll(authStub.admin, { ids: [asset.id], force: true })).rejects.toBeInstanceOf(
+          ForbiddenException,
+        );
+        expect(mocks.asset.update).not.toHaveBeenCalled();
+        expect(mocks.asset.updateAll).not.toHaveBeenCalled();
+      });
     });
 
     it('should update the exif description', async () => {
@@ -524,7 +636,7 @@ describe(AssetService.name, () => {
       process.env.IMMICH_FAMILY_ENABLED = 'true';
       try {
         mocks.access.asset.checkOwnerAccess.mockResolvedValueOnce(new Set(['asset1']));
-        mocks.access.family.checkAssetDeleteAccess.mockResolvedValue(new Set(['asset2']));
+        mocks.access.family.checkAssetTrashAccess.mockResolvedValue(new Set(['asset2']));
         mocks.access.asset.checkOwnerAccess.mockResolvedValueOnce(new Set(['asset1']));
 
         await sut.deleteAll(authStub.user1, { ids: ['asset1', 'asset2'], force: true });
@@ -546,7 +658,7 @@ describe(AssetService.name, () => {
       process.env.IMMICH_FAMILY_ENABLED = 'true';
       try {
         mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set());
-        mocks.access.family.checkAssetDeleteAccess.mockResolvedValue(new Set(['asset2']));
+        mocks.access.family.checkAssetTrashAccess.mockResolvedValue(new Set(['asset2']));
 
         await sut.deleteAll(authStub.user1, { ids: ['asset2'], force: false });
 

@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { JobName, JobStatus } from 'src/enum.js';
 import { TrashService } from 'src/services/trash.service.js';
 import { authStub } from 'test/fixtures/auth.stub.js';
@@ -45,6 +45,24 @@ describe(TrashService.name, () => {
 
       expect(mocks.trash.restoreAll).toHaveBeenCalledWith(['asset1', 'asset2']);
       expect(mocks.job.queue.mock.calls).toEqual([]);
+    });
+  });
+
+  describe('as a family viewer', () => {
+    beforeEach(() => {
+      mocks.access.family.isViewer.mockResolvedValue(true);
+    });
+
+    it('should not restore or empty the trash', async () => {
+      await expect(sut.restore(authStub.user1)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(sut.empty(authStub.user1)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(mocks.trash.restore).not.toHaveBeenCalled();
+      expect(mocks.trash.empty).not.toHaveBeenCalled();
+    });
+
+    it('should not restore assets', async () => {
+      mocks.access.asset.checkOwnerAccess.mockResolvedValue(new Set(['asset-1']));
+      await expect(sut.restoreAssets(authStub.user1, { ids: ['asset-1'] })).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 

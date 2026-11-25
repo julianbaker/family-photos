@@ -38,6 +38,7 @@ import {
   QueueName,
 } from 'src/enum.js';
 import { familyBeforeAssetUpdate, familySplitAssetDelete } from 'src/family/family-owner-fields.js';
+import { FamilyPeopleService } from 'src/family/family-people.service.js';
 import { BaseService } from 'src/services/base.service.js';
 import type { JobItem, JobOf } from 'src/types.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
@@ -87,7 +88,12 @@ export class AssetService extends BaseService {
   async update(auth: AuthDto, id: string, dto: UpdateAssetDto): Promise<AssetResponseDto> {
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id], familyGrant: true });
     // family fork: personal fields stay with the owner; family edits are recorded in the history
-    await familyBeforeAssetUpdate({ access: this.accessRepository, family: this.familyRepository }, auth, [id], dto);
+    const recordFamilyHistory = await familyBeforeAssetUpdate(
+      { access: this.accessRepository, family: this.familyRepository },
+      auth,
+      [id],
+      dto,
+    );
 
     const { description, dateTimeOriginal, latitude, longitude, rating, ...rest } = dto;
     const repos = { asset: this.assetRepository, event: this.eventRepository };
@@ -119,6 +125,12 @@ export class AssetService extends BaseService {
       throw new BadRequestException('Asset not found');
     }
 
+    // family fork: recorded only now that the change has gone through
+    await recordFamilyHistory();
+    if (rest.visibility === AssetVisibility.Locked || rest.visibility === AssetVisibility.Hidden) {
+      await BaseService.create(FamilyPeopleService, this).onAssetsLeftFamilyView(auth.user.id);
+    }
+
     if (!wroteMetadata) {
       this.websocketRepository.clientSend('on_asset_update', auth.user.id, mapAsset(asset, { auth }));
     }
@@ -142,7 +154,12 @@ export class AssetService extends BaseService {
     } = dto;
     await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids, familyGrant: true });
     // family fork: personal fields stay with the owner; family edits are recorded in the history
-    await familyBeforeAssetUpdate({ access: this.accessRepository, family: this.familyRepository }, auth, ids, dto);
+    const recordFamilyHistory = await familyBeforeAssetUpdate(
+      { access: this.accessRepository, family: this.familyRepository },
+      auth,
+      ids,
+      dto,
+    );
 
     const assetDto = omitBy({ isFavorite, visibility, duplicateId }, isUndefined);
     const exifDto = omitBy(
@@ -179,6 +196,12 @@ export class AssetService extends BaseService {
 
     if (visibility === AssetVisibility.Locked) {
       await this.albumRepository.removeAssetsFromAll(ids);
+    }
+
+    // family fork: recorded only now that the change has gone through
+    await recordFamilyHistory();
+    if (visibility === AssetVisibility.Locked || visibility === AssetVisibility.Hidden) {
+      await BaseService.create(FamilyPeopleService, this).onAssetsLeftFamilyView(auth.user.id);
     }
 
     if (shouldWriteSidecar) {
@@ -379,7 +402,8 @@ export class AssetService extends BaseService {
   async deleteAll(auth: AuthDto, dto: AssetBulkDeleteDto): Promise<void> {
     const { ids, force } = dto;
 
-    await this.requireAccess({ auth, permission: Permission.AssetDelete, ids });
+    // family fork: an admin may also trash another member's photo (see familySplitAssetDelete)
+    await this.requireAccess({ auth, permission: Permission.AssetDelete, ids, familyGrant: true });
     // family fork: only the owner deletes a photo for good; anyone else's goes to the owner's trash
     const { forever, trash } = await familySplitAssetDelete({ access: this.accessRepository }, auth, ids, force);
     if (forever.length > 0) {

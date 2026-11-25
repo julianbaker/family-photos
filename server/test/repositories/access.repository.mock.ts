@@ -89,8 +89,10 @@ export const newAccessRepositoryMock = (): IAccessRepositoryMock => {
     },
 
     family: {
+      isViewer: vitest.fn().mockResolvedValue(false),
+      checkAssetReadAccess: vitest.fn().mockResolvedValue(new Set()),
       checkAssetEditAccess: vitest.fn().mockResolvedValue(new Set()),
-      checkAssetDeleteAccess: vitest.fn().mockResolvedValue(new Set()),
+      checkAssetTrashAccess: vitest.fn().mockResolvedValue(new Set()),
       checkFaceEditAccess: vitest.fn().mockResolvedValue(new Set()),
     },
 
