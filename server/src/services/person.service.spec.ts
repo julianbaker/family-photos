@@ -35,6 +35,8 @@ describe(PersonService.name, () => {
 
   beforeEach(() => {
     ({ sut, mocks } = newTestService(PersonService));
+    // family fork: the cleanup asks which people are family people, with or without the feature on
+    mocks.family.getFamilyPersonGroupIds.mockResolvedValue(new Set());
   });
 
   it('should be defined', () => {
@@ -809,6 +811,19 @@ describe(PersonService.name, () => {
       expect(mocks.person.delete).toHaveBeenCalledWith([person.personGroupId], undefined);
       expect(mocks.person.deleteEmptyGroups).toHaveBeenCalledWith();
       expect(mocks.storage.unlink).toHaveBeenCalledWith(person.thumbnailPath);
+    });
+  });
+
+  describe('handlePersonCleanup (family people)', () => {
+    it('should keep family people without photos, with the family feature off (restart cycle)', async () => {
+      const ancestor = PersonFactory.create();
+      mocks.person.getAllWithoutFaces.mockResolvedValue([ancestor]);
+      mocks.family.getFamilyPersonGroupIds.mockResolvedValue(new Set([ancestor.personGroupId]));
+
+      await sut.handlePersonCleanup();
+
+      expect(mocks.person.delete).not.toHaveBeenCalled();
+      expect(mocks.storage.unlink).not.toHaveBeenCalled();
     });
   });
 

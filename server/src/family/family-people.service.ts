@@ -26,6 +26,9 @@ import {
   RelationType,
   Relationship,
   StoredRelation,
+  isPetKind,
+  planMergedRelations,
+  relationsBlockingPet,
   validateRelation,
 } from 'src/family/family-relations.js';
 import { FamilyHistoryAction, FamilyRole } from 'src/family/family.enum.js';
@@ -65,6 +68,13 @@ const checkedDate = (which: 'birth' | 'death', value: string | null) => {
 /** Spouse, sibling and friend are stored once, smaller ID first. */
 const UNDIRECTED = new Set([RelationType.Spouse, RelationType.Sibling, RelationType.Friend]);
 const isUndirected = (type: RelationType) => UNDIRECTED.has(type);
+
+/** What a family-wide merge needs afterwards: the relations it added, and for which source. */
+export type FamilyMergePlan = {
+  familyId: string;
+  sourceIds: string[];
+  added: Array<{ id: string; source: string | undefined }>;
+};
 
 const RECONCILE_DELAY_MS = 15_000;
 
@@ -144,7 +154,38 @@ export class FamilyPeopleService extends BaseService {
       return this.get(auth, id);
     }
 
-    await this.familyRepository.updateFamilyPerson(id, { ...changes, updatedById: auth.user.id });
+    if (dto.kind === undefined) {
+      await this.familyRepository.updateFamilyPerson(id, { ...changes, updatedById: auth.user.id });
+    } else {
+      // a person becoming a pet must not keep relations a pet cannot have: checked under the graph lock
+      await this.familyRepository.updateFamilyPersonChecked(
+        membership.familyId,
+        id,
+        { ...changes, updatedById: auth.user.id },
+        (people, relations) => {
+          const row = people.find((person) => person.personGroupId === id);
+          if (!row || isPetKind(row) || !isPetKind({ kind: dto.kind, hasPetFaces: row.hasPetFaces })) {
+            return;
+          }
+          const conflicts = relationsBlockingPet(
+            this.toGraphPeople(people),
+            relations.map((relation) => this.toStored(relation)),
+            id,
+          );
+          if (conflicts.length > 0) {
+            throw new BadRequestException({
+              message: `${row.name || 'This person'} cannot become a pet while they have ${conflicts.length === 1 ? 'a relation' : 'relations'} a pet cannot have; remove ${conflicts.length === 1 ? 'it' : 'them'} first`,
+              conflicts: conflicts.map((relation) => ({
+                id: relation.id,
+                personId: relation.personId,
+                relatedPersonId: relation.relatedPersonId,
+                type: relation.type,
+              })),
+            });
+          }
+        },
+      );
+    }
     if (dto.name !== undefined || dto.birthDate !== undefined) {
       await this.familyRepository.mirrorFamilyPeople(membership.familyId, id);
     }
@@ -250,17 +291,20 @@ export class FamilyPeopleService extends BaseService {
   /**
   Called by the stock merge before it runs. In a family every member has a copy of each person (a
   mirror of the family's record), so a merge is a family-wide change: the stock code must merge every
-  member's copy, not stop at the first name clash between two mirrors. This folds the sources' details
-  and relations into the target first, since the sources' records go with their person groups.
-  Returns true when the merge is family-wide.
+  member's copy, not stop at the first name clash between two mirrors. This checks that the merged family
+  would still be valid (at most two parents, nobody their own ancestor, pets with their companions only;
+  otherwise it refuses the whole merge before anything changes), then folds the sources' details and
+  relations into the target in one transaction. The sources' own relations go with their person groups
+  once the stock merge has deleted them. Returns what `afterStockMerge` needs, or undefined when the
+  merge is not family-wide.
   */
-  async beforeStockMerge(auth: AuthDto, targetId: string, sourceIds: string[]): Promise<boolean> {
+  async beforeStockMerge(auth: AuthDto, targetId: string, sourceIds: string[]): Promise<FamilyMergePlan | undefined> {
     if (!isFamilyEnabled() || sourceIds.length === 0) {
-      return false;
+      return undefined;
     }
     const membership = await this.familyRepository.getMembership(auth.user.id);
     if (!membership || !CONTRIBUTOR_ROLES.includes(membership.role)) {
-      return false;
+      return undefined;
     }
     const target = await this.familyRepository.getFamilyPerson(membership.familyId, targetId);
     const found = await Promise.all(
@@ -268,7 +312,7 @@ export class FamilyPeopleService extends BaseService {
     );
     const sources = found.filter((person) => person !== undefined);
     if (!target || sources.length === 0) {
-      return false;
+      return undefined;
     }
 
     // the target's own details win; a source only fills what the target lacks
@@ -305,11 +349,35 @@ export class FamilyPeopleService extends BaseService {
       values.updatedById = auth.user.id;
     }
 
-    await this.familyRepository.mergeFamilyPeople(
+    const sourceGroupIds = sources.map((person) => person.personGroupId);
+    const sourceOf = new Map<string, string>();
+    const added = await this.familyRepository.mergeFamilyPeople(
       membership.familyId,
       targetId,
-      sources.map((person) => person.personGroupId),
+      sourceGroupIds,
       values,
+      (people, relations) => {
+        const plan = planMergedRelations(
+          this.toGraphPeople(people),
+          relations.map((relation) => this.toStored(relation)),
+          targetId,
+          sourceGroupIds,
+        );
+        if (plan.error) {
+          throw new BadRequestException(`These people cannot be merged: ${plan.error}`);
+        }
+        for (const relation of plan.added) {
+          sourceOf.set(`${relation.personId}|${relation.relatedPersonId}|${relation.type}`, relation.source);
+        }
+        return plan.added.map((relation) => ({
+          personGroupId: relation.personId,
+          relatedPersonGroupId: relation.relatedPersonId,
+          type: relation.type,
+          qualifier: relation.qualifier,
+          label: relation.label,
+          createdById: auth.user.id,
+        }));
+      },
     );
     await this.recordHistory(
       membership,
@@ -319,7 +387,14 @@ export class FamilyPeopleService extends BaseService {
       { merged: sources.map(({ personGroupId, name }) => ({ personGroupId, name })) },
       values,
     );
-    return true;
+    return {
+      familyId: membership.familyId,
+      sourceIds: sourceGroupIds,
+      added: added.map((relation) => ({
+        id: relation.id,
+        source: sourceOf.get(`${relation.personGroupId}|${relation.relatedPersonGroupId}|${relation.type}`),
+      })),
+    };
   }
 
   /**
@@ -342,15 +417,26 @@ export class FamilyPeopleService extends BaseService {
     return membership ? this.familyRepository.getFamilyThumbnailPath(membership.familyId, personGroupId) : undefined;
   }
 
-  /** Called by the stock merge when it has finished: copies the merged person to every member. */
-  async afterStockMerge(auth: AuthDto, targetId: string) {
-    const membership = await this.familyRepository.getMembership(auth.user.id);
-    if (!membership) {
-      return;
+  /**
+  Called by the stock merge when it has finished the person copies, before it deletes empty person
+  groups. A source whose copies are all merged loses its family record (so its group can go, taking the
+  relations it had). A source that did not fully merge stays as it was, and the relations added for it
+  are taken back, so a failed merge leaves the tree as it was. Then the merged person is copied to every
+  member.
+  */
+  async afterStockMerge(auth: AuthDto, targetId: string, plan: FamilyMergePlan) {
+    const dropped = new Set(await this.familyRepository.dropMergedFamilyPeople(plan.familyId, plan.sourceIds));
+    const undo = plan.added.filter((relation) => relation.source && !dropped.has(relation.source));
+    await this.familyRepository.undoMergeRelations(
+      plan.familyId,
+      undo.map((relation) => relation.id),
+    );
+    if (dropped.size < plan.sourceIds.length) {
+      this.logger.warn(`Merge into ${targetId} did not complete for ${plan.sourceIds.length - dropped.size} people`);
     }
 
-    await this.familyRepository.mirrorFamilyPeople(membership.familyId, targetId);
-    await this.repairCovers(membership.familyId, targetId);
+    await this.familyRepository.mirrorFamilyPeople(plan.familyId, targetId);
+    await this.repairCovers(plan.familyId, targetId);
   }
 
   /**
@@ -429,32 +515,44 @@ export class FamilyPeopleService extends BaseService {
       label: dto.label ?? null,
     };
 
-    const error = validateRelation(await this.getGraph(membership.familyId), candidate);
-    if (error) {
-      throw new BadRequestException(error);
-    }
-
-    const existing = await this.familyRepository.getRelations(membership.familyId);
-    if (
-      existing.some(
-        (relation) =>
-          relation.personGroupId === personId &&
-          relation.relatedPersonGroupId === relatedPersonId &&
-          relation.type === dto.type,
-      )
-    ) {
-      throw new BadRequestException('That relation is already recorded');
-    }
-
-    const relation = await this.familyRepository.createRelation({
-      familyId: membership.familyId,
-      personGroupId: personId,
-      relatedPersonGroupId: relatedPersonId,
-      type: dto.type,
-      qualifier: candidate.qualifier,
-      label: candidate.label,
-      createdById: auth.user.id,
-    });
+    // checked and written under the family's graph lock: two requests cannot both pass the check
+    const { relations } = await this.familyRepository.addRelationsLocked(
+      { id: membership.familyId, clusterGroupId: membership.clusterGroupId },
+      (people, existing) => {
+        const error = validateRelation(
+          new FamilyGraph(this.toGraphPeople(people), existing.map((item) => this.toStored(item))),
+          candidate,
+        );
+        if (error) {
+          throw new BadRequestException(error);
+        }
+        if (
+          existing.some(
+            (relation) =>
+              relation.personGroupId === personId &&
+              relation.relatedPersonGroupId === relatedPersonId &&
+              relation.type === dto.type,
+          )
+        ) {
+          throw new BadRequestException('That relation is already recorded');
+        }
+        return {
+          newPerson: null,
+          undirected: (type) => isUndirected(type as RelationType),
+          relations: [
+            {
+              personGroupId: personId,
+              relatedPersonGroupId: relatedPersonId,
+              type: dto.type,
+              qualifier: candidate.qualifier,
+              label: candidate.label,
+              createdById: auth.user.id,
+            },
+          ],
+        };
+      },
+    );
+    const relation = relations[0];
     await this.recordHistory(
       membership,
       auth,
@@ -482,111 +580,122 @@ export class FamilyPeopleService extends BaseService {
     if (dto.alsoWith) {
       await this.requirePerson(membership, dto.alsoWith);
     }
-    const [people, stored] = await Promise.all([
-      this.familyRepository.getFamilyPeople(membership.familyId),
-      this.familyRepository.getRelations(membership.familyId),
-    ]);
-    const isPet = (personId: string) => {
-      const person = people.find((item) => item.personGroupId === personId);
-      return !!person && (person.kind === 'pet' || (person.kind === null && !!person.hasPetFaces));
-    };
-    if (dto.kind === 'owner' && !isPet(id)) {
-      throw new BadRequestException('Only a pet has companions');
-    }
-    if (dto.kind !== 'owner' && isPet(id)) {
-      throw new BadRequestException("A pet's people are its companions");
-    }
-
-    const other = dto.existingId ?? 'NEW';
     const gender =
       dto.kind === 'father' || dto.kind === 'godfather'
         ? 'male'
         : dto.kind === 'mother' || dto.kind === 'godmother'
           ? 'female'
           : null;
-    const parent = (from: string, to: string) => ({ personId: from, relatedPersonId: to, type: RelationType.Parent });
-    const planned: Array<{ personId: string; relatedPersonId: string; type: RelationType }> = [];
-    switch (dto.kind) {
-      case 'father':
-      case 'mother':
-      case 'parent':
-      case 'owner': {
-        planned.push(parent(other, id));
-        if (dto.alsoWith && dto.kind !== 'owner') {
-          planned.push({ personId: dto.alsoWith, relatedPersonId: other, type: RelationType.Spouse });
-        }
-        break;
-      }
-      case 'child':
-      case 'pet': {
-        planned.push(parent(id, other));
-        if (dto.alsoWith) {
-          planned.push(parent(dto.alsoWith, other));
-        }
-        break;
-      }
-      case 'partner': {
-        planned.push({ personId: id, relatedPersonId: other, type: RelationType.Spouse });
-        break;
-      }
-      case 'godfather':
-      case 'godmother':
-      case 'godparent': {
-        // a godparent relation runs from the godparent to the godchild
-        planned.push({ personId: other, relatedPersonId: id, type: RelationType.Godparent });
-        break;
-      }
-      case 'godchild': {
-        planned.push({ personId: id, relatedPersonId: other, type: RelationType.Godparent });
-        break;
-      }
-      default: {
-        planned.push({ personId: id, relatedPersonId: other, type: RelationType.Sibling });
-      }
-    }
 
-    // check each relation against the family as it would be with the ones before it, new person included
-    const graphPeople = [
-      ...people.map((person) => ({
-        id: person.personGroupId,
-        gender: (person.gender as Gender) ?? null,
-        pet: isPet(person.personGroupId),
-      })),
-      ...(dto.existingId ? [] : [{ id: 'NEW', gender: gender as Gender, pet: dto.kind === 'pet' }]),
-    ];
-    const accepted: StoredRelation[] = stored.map((relation) => this.toStored(relation));
-    const toWrite: Array<{ personId: string; relatedPersonId: string; type: RelationType }> = [];
-    for (const relation of planned) {
-      let { personId, relatedPersonId } = relation;
-      if (isUndirected(relation.type) && personId !== 'NEW' && relatedPersonId !== 'NEW' && personId > relatedPersonId) {
-        [personId, relatedPersonId] = [relatedPersonId, personId];
-      }
-      const candidate = { personId, relatedPersonId, type: relation.type, qualifier: null, label: null };
-      const error = validateRelation(new FamilyGraph(graphPeople, accepted), candidate);
-      if (error) {
-        throw new BadRequestException(error);
-      }
-      if (accepted.some((item) => item.personId === personId && item.relatedPersonId === relatedPersonId && item.type === relation.type)) {
-        throw new BadRequestException('That relation is already recorded');
-      }
-      accepted.push({ id: `planned-${accepted.length}`, ...candidate });
-      toWrite.push({ personId, relatedPersonId, type: relation.type });
-    }
-
-    const { newId, relations } = await this.familyRepository.addRelative(
+    // the plan is checked and written under the family's graph lock, against the people and relations
+    // read inside it: two requests cannot both pass the check (a third parent, a cycle)
+    const { newId, relations } = await this.familyRepository.addRelationsLocked(
       { id: membership.familyId, clusterGroupId: membership.clusterGroupId },
-      dto.newName
-        ? { name: dto.newName, gender, kind: dto.kind === 'pet' ? 'pet' : null, updatedById: auth.user.id }
-        : null,
-      toWrite.map((relation) => ({
-        personGroupId: relation.personId,
-        relatedPersonGroupId: relation.relatedPersonId,
-        type: relation.type,
-        qualifier: null,
-        label: null,
-        createdById: auth.user.id,
-      })),
-      (type) => isUndirected(type as RelationType),
+      (people, stored) => {
+        const self = people.find((item) => item.personGroupId === id);
+        const selfIsPet = !!self && isPetKind(self);
+        if (dto.kind === 'owner' && !selfIsPet) {
+          throw new BadRequestException('Only a pet has companions');
+        }
+        if (dto.kind !== 'owner' && selfIsPet) {
+          throw new BadRequestException("A pet's people are its companions");
+        }
+
+        const other = dto.existingId ?? 'NEW';
+        const parent = (from: string, to: string) => ({
+          personId: from,
+          relatedPersonId: to,
+          type: RelationType.Parent,
+        });
+        const planned: Array<{ personId: string; relatedPersonId: string; type: RelationType }> = [];
+        switch (dto.kind) {
+          case 'father':
+          case 'mother':
+          case 'parent':
+          case 'owner': {
+            planned.push(parent(other, id));
+            if (dto.alsoWith && dto.kind !== 'owner') {
+              planned.push({ personId: dto.alsoWith, relatedPersonId: other, type: RelationType.Spouse });
+            }
+            break;
+          }
+          case 'child':
+          case 'pet': {
+            planned.push(parent(id, other));
+            if (dto.alsoWith) {
+              planned.push(parent(dto.alsoWith, other));
+            }
+            break;
+          }
+          case 'partner': {
+            planned.push({ personId: id, relatedPersonId: other, type: RelationType.Spouse });
+            break;
+          }
+          case 'godfather':
+          case 'godmother':
+          case 'godparent': {
+            // a godparent relation runs from the godparent to the godchild
+            planned.push({ personId: other, relatedPersonId: id, type: RelationType.Godparent });
+            break;
+          }
+          case 'godchild': {
+            planned.push({ personId: id, relatedPersonId: other, type: RelationType.Godparent });
+            break;
+          }
+          default: {
+            planned.push({ personId: id, relatedPersonId: other, type: RelationType.Sibling });
+          }
+        }
+
+        // check each relation against the family as it would be with the ones before it, new person included
+        const graphPeople = [
+          ...this.toGraphPeople(people),
+          ...(dto.existingId ? [] : [{ id: 'NEW', gender: gender as Gender, pet: dto.kind === 'pet' }]),
+        ];
+        const accepted: StoredRelation[] = stored.map((relation) => this.toStored(relation));
+        const toWrite: Array<{ personId: string; relatedPersonId: string; type: RelationType }> = [];
+        for (const relation of planned) {
+          let { personId, relatedPersonId } = relation;
+          if (
+            isUndirected(relation.type) &&
+            personId !== 'NEW' &&
+            relatedPersonId !== 'NEW' &&
+            personId > relatedPersonId
+          ) {
+            [personId, relatedPersonId] = [relatedPersonId, personId];
+          }
+          const candidate = { personId, relatedPersonId, type: relation.type, qualifier: null, label: null };
+          const error = validateRelation(new FamilyGraph(graphPeople, accepted), candidate);
+          if (error) {
+            throw new BadRequestException(error);
+          }
+          if (
+            accepted.some(
+              (item) =>
+                item.personId === personId && item.relatedPersonId === relatedPersonId && item.type === relation.type,
+            )
+          ) {
+            throw new BadRequestException('That relation is already recorded');
+          }
+          accepted.push({ id: `planned-${accepted.length}`, ...candidate });
+          toWrite.push({ personId, relatedPersonId, type: relation.type });
+        }
+
+        return {
+          newPerson: dto.newName
+            ? { name: dto.newName, gender, kind: dto.kind === 'pet' ? 'pet' : null, updatedById: auth.user.id }
+            : null,
+          undirected: (type) => isUndirected(type as RelationType),
+          relations: toWrite.map((relation) => ({
+            personGroupId: relation.personId,
+            relatedPersonGroupId: relation.relatedPersonId,
+            type: relation.type,
+            qualifier: null,
+            label: null,
+            createdById: auth.user.id,
+          })),
+        };
+      },
     );
     const relativeId = newId ?? dto.existingId!;
     if (newId) {
@@ -796,13 +905,17 @@ export class FamilyPeopleService extends BaseService {
       this.familyRepository.getRelations(familyId),
     ]);
     return new FamilyGraph(
-      people.map((person) => ({
-        id: person.personGroupId,
-        gender: (person.gender as Gender) ?? null,
-        pet: person.kind === 'pet' || (person.kind === null && !!person.hasPetFaces),
-      })),
+      this.toGraphPeople(people),
       relations.map((relation) => this.toStored(relation)),
     );
+  }
+
+  private toGraphPeople(people: Array<{ personGroupId: string; gender: string | null; kind: string | null; hasPetFaces?: boolean | number | null }>) {
+    return people.map((person) => ({
+      id: person.personGroupId,
+      gender: (person.gender as Gender) ?? null,
+      pet: isPetKind(person),
+    }));
   }
 
   private toStored(relation: Selectable<FamilyRelationTable>): StoredRelation {

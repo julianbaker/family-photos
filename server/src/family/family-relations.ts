@@ -253,11 +253,13 @@ export class FamilyGraph {
     const inGroup = new Set<string>();
     for (const [a, others] of this.siblings) {
       for (const [b, qualifier] of others) {
-        if (qualifier !== RelationQualifier.Step && qualifier !== RelationQualifier.Half) {
-          root.set(find(a), find(b));
-          inGroup.add(a);
-          inGroup.add(b);
+        if (qualifier === RelationQualifier.Step || qualifier === RelationQualifier.Half) {
+          continue;
         }
+
+        root.set(find(a), find(b));
+        inGroup.add(a);
+        inGroup.add(b);
       }
     }
     for (const id of inGroup) {
@@ -265,11 +267,13 @@ export class FamilyGraph {
     }
     for (const [a, others] of this.siblings) {
       for (const [b, qualifier] of others) {
-        if (qualifier === RelationQualifier.Half && a < b) {
-          const pair = `virtual-half:${a}:${b}`;
-          this.virtualParent.set(a, [...(this.virtualParent.get(a) ?? []), pair]);
-          this.virtualParent.set(b, [...(this.virtualParent.get(b) ?? []), pair]);
+        if (!(qualifier === RelationQualifier.Half && a < b)) {
+          continue;
         }
+
+        const pair = `virtual-half:${a}:${b}`;
+        this.virtualParent.set(a, [...(this.virtualParent.get(a) ?? []), pair]);
+        this.virtualParent.set(b, [...(this.virtualParent.get(b) ?? []), pair]);
       }
     }
   }
@@ -706,4 +710,77 @@ export const validateRelation = (
   }
 
   return null;
+};
+
+const UNDIRECTED_TYPES = new Set([RelationType.Spouse, RelationType.Sibling, RelationType.Friend]);
+
+/** A pet by hand, or (when not set) because every face found for it is a pet's. */
+export const isPetKind = (person: { kind?: string | null; hasPetFaces?: boolean | number | null }): boolean =>
+  person.kind === 'pet' || (!person.kind && !!person.hasPetFaces);
+
+/**
+Merging `sourceIds` into `targetId` re-points every relation of a source at the target. Returns the
+relations to add (self relations and repeats dropped; spouse, sibling and friend keep the smaller id
+first) and, when the merged family would break its rules (a third parent, someone their own ancestor,
+a pet with the wrong kind of relation), the reason. Relations that don't touch a source are taken as
+they are; only the re-pointed ones are checked, one by one against everything accepted before them.
+*/
+export const planMergedRelations = (
+  people: RelationPerson[],
+  relations: StoredRelation[],
+  targetId: string,
+  sourceIds: string[],
+): { added: Array<StoredRelation & { source: string }>; error: string | null } => {
+  const sources = new Set(sourceIds);
+  const remaining = people.filter((person) => !sources.has(person.id));
+  const accepted = relations.filter((relation) => !sources.has(relation.personId) && !sources.has(relation.relatedPersonId));
+  const keys = new Set(accepted.map((relation) => `${relation.personId}|${relation.relatedPersonId}|${relation.type}`));
+  const added: Array<StoredRelation & { source: string }> = [];
+  for (const relation of relations) {
+    if (!sources.has(relation.personId) && !sources.has(relation.relatedPersonId)) {
+      continue;
+    }
+    let personId = sources.has(relation.personId) ? targetId : relation.personId;
+    let relatedPersonId = sources.has(relation.relatedPersonId) ? targetId : relation.relatedPersonId;
+    if (personId === relatedPersonId) {
+      continue;
+    }
+    if (UNDIRECTED_TYPES.has(relation.type) && personId > relatedPersonId) {
+      [personId, relatedPersonId] = [relatedPersonId, personId];
+    }
+    const key = `${personId}|${relatedPersonId}|${relation.type}`;
+    if (keys.has(key)) {
+      continue;
+    }
+    const candidate = { ...relation, personId, relatedPersonId };
+    const error = validateRelation(new FamilyGraph(remaining, accepted), candidate);
+    if (error) {
+      return { added: [], error };
+    }
+    keys.add(key);
+    accepted.push(candidate);
+    added.push({ ...candidate, source: sources.has(relation.personId) ? relation.personId : relation.relatedPersonId });
+  }
+  return { added, error: null };
+};
+
+/**
+The relations a person cannot keep as a pet: a pet only has companions (a parent relation from a person
+to the pet), at most two, and is nobody's parent, partner, sibling, godparent or friend.
+*/
+export const relationsBlockingPet = (
+  people: RelationPerson[],
+  relations: StoredRelation[],
+  petId: string,
+): StoredRelation[] => {
+  const pets = new Set(people.filter((person) => person.pet).map((person) => person.id));
+  const involved = relations.filter((relation) => relation.personId === petId || relation.relatedPersonId === petId);
+  const companions = involved.filter(
+    (relation) =>
+      relation.type === RelationType.Parent &&
+      relation.relatedPersonId === petId &&
+      !pets.has(relation.personId),
+  );
+  const tooMany = companions.length > 2 ? companions.slice(2) : [];
+  return involved.filter((relation) => !companions.includes(relation) || tooMany.includes(relation));
 };

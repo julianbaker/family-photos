@@ -545,8 +545,8 @@ export class FamilyRepository {
   }
 
   @GenerateSql({ params: [DummyValue.UUID] })
-  getFamilyPeople(familyId: string) {
-    return this.db
+  getFamilyPeople(familyId: string, db: Kysely<DB> = this.db) {
+    return db
       .selectFrom('family_person')
       .selectAll('family_person')
       .select((eb) =>
@@ -650,64 +650,69 @@ export class FamilyRepository {
     });
   }
 
-  /**
-  Adds a relative in one transaction: the new person (when there is one) and every relation, so a
-  failure leaves nothing behind. `NEW` in a relation stands for the new person's id.
-  */
-  async addRelative(
+  /** Inserts the new person (when there is one) and the relations; `NEW` in a relation stands for the new person's id. */
+  private async insertRelationsIn(
+    trx: Kysely<DB>,
     family: { id: string; clusterGroupId: string },
     newPerson: Omit<Insertable<FamilyPersonTable>, 'personGroupId' | 'familyId'> | null,
     relations: Omit<Insertable<FamilyRelationTable>, 'familyId'>[],
-    /** Relations stored once with the smaller id first (spouse, sibling, friend). */
     undirected: (type: string) => boolean,
   ) {
-    return this.db.transaction().execute(async (trx) => {
-      let newId: string | null = null;
-      if (newPerson) {
-        const group = await trx
-          .insertInto('person_group')
-          .values({ clusterGroupId: family.clusterGroupId })
-          .returning('id')
-          .executeTakeFirstOrThrow();
-        newId = group.id;
-        await trx
-          .insertInto('family_person')
-          .values({ ...newPerson, personGroupId: newId, familyId: family.id })
-          .execute();
-      }
-      const resolve = (id: string) => (id === 'NEW' ? newId! : id);
-      const created = await trx
-        .insertInto('family_relation')
-        .values(
-          relations.map((relation) => {
-            let a = resolve(relation.personGroupId);
-            let b = resolve(relation.relatedPersonGroupId);
-            if (undirected(relation.type) && a > b) {
-              [a, b] = [b, a];
-            }
-            return { ...relation, familyId: family.id, personGroupId: a, relatedPersonGroupId: b };
-          }),
-        )
-        .returningAll()
+    let newId: string | null = null;
+    if (newPerson) {
+      const group = await trx
+        .insertInto('person_group')
+        .values({ clusterGroupId: family.clusterGroupId })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      newId = group.id;
+      await trx
+        .insertInto('family_person')
+        .values({ ...newPerson, personGroupId: newId, familyId: family.id })
         .execute();
-      return { newId, relations: created };
-    });
+    }
+    const resolve = (id: string) => (id === 'NEW' ? newId! : id);
+    const created =
+      relations.length === 0
+        ? []
+        : await trx
+            .insertInto('family_relation')
+            .values(
+              relations.map((relation) => {
+                let a = resolve(relation.personGroupId);
+                let b = resolve(relation.relatedPersonGroupId);
+                if (undirected(relation.type) && a > b) {
+                  [a, b] = [b, a];
+                }
+                return { ...relation, familyId: family.id, personGroupId: a, relatedPersonGroupId: b };
+              }),
+            )
+            .returningAll()
+            .execute();
+    return { newId, relations: created };
   }
 
   /**
   Folds `sourceIds` into `targetId` before a merge: the target takes `values` (the combined details)
-  and every relation of a source is re-pointed at the target. Relations that would point a person at
-  themselves, or repeat one the target already has, are dropped. Symmetric relations (spouse, sibling,
-  friend) keep the smaller ID first. The source records themselves go when the merge deletes their
-  person groups.
+  and the relations `plan` returns (the sources' relations re-pointed at the target, already checked
+  against the family's rules, under the graph lock) are added. The sources' own relations stay until the
+  merge deletes their person groups, so a merge that fails can be undone with `undoMergeRelations`.
+  Returns the ids of the relations that were added.
   */
   async mergeFamilyPeople(
     familyId: string,
     targetId: string,
     sourceIds: string[],
     values: Updateable<FamilyPersonTable>,
-  ): Promise<void> {
-    await this.db.transaction().execute(async (trx) => {
+    plan: (
+      people: Awaited<ReturnType<FamilyRepository['getFamilyPeople']>>,
+      relations: Awaited<ReturnType<FamilyRepository['getRelations']>>,
+    ) => Omit<Insertable<FamilyRelationTable>, 'familyId'>[],
+  ): Promise<{ id: string; personGroupId: string; relatedPersonGroupId: string; type: string }[]> {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockGraph(trx, familyId);
+      const [people, relations] = await Promise.all([this.getFamilyPeople(familyId, trx), this.getRelations(familyId, trx)]);
+      const added = plan(people, relations);
       // "this is me" is unique: free it on the sources before the target takes it
       await trx
         .updateTable('family_person')
@@ -723,32 +728,47 @@ export class FamilyRepository {
           .where('personGroupId', '=', targetId)
           .execute();
       }
-      await sql`
-        insert into "family_relation"
-          ("familyId", "personGroupId", "relatedPersonGroupId", "type", "qualifier", "label", "createdById")
-        select r."familyId",
-          case when r."type" in ('spouse', 'sibling', 'friend') then least(r.a, r.b) else r.a end,
-          case when r."type" in ('spouse', 'sibling', 'friend') then greatest(r.a, r.b) else r.b end,
-          r."type", r."qualifier", r."label", r."createdById"
-        from (
-          select fr.*,
-            case when fr."personGroupId" = ${anyUuid(sourceIds)} then ${targetId}::uuid else fr."personGroupId" end as a,
-            case when fr."relatedPersonGroupId" = ${anyUuid(sourceIds)} then ${targetId}::uuid else fr."relatedPersonGroupId" end as b
-          from "family_relation" fr
-          where fr."familyId" = ${familyId}
-            and (fr."personGroupId" = ${anyUuid(sourceIds)} or fr."relatedPersonGroupId" = ${anyUuid(sourceIds)})
-        ) r
-        where r.a <> r.b
-        on conflict ("personGroupId", "relatedPersonGroupId", "type") do nothing
-      `.execute(trx);
-      await trx
-        .deleteFrom('family_relation')
-        .where('familyId', '=', familyId)
-        .where((eb) =>
-          eb.or([eb('personGroupId', '=', anyUuid(sourceIds)), eb('relatedPersonGroupId', '=', anyUuid(sourceIds))]),
-        )
+      if (added.length === 0) {
+        return [];
+      }
+      return trx
+        .insertInto('family_relation')
+        .values(added.map((relation) => ({ ...relation, familyId })))
+        .onConflict((oc) => oc.columns(['personGroupId', 'relatedPersonGroupId', 'type']).doNothing())
+        .returning(['id', 'personGroupId', 'relatedPersonGroupId', 'type'])
         .execute();
     });
+  }
+
+  /** Removes relations a merge added for sources whose merge did not complete. */
+  async undoMergeRelations(familyId: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) {
+      return;
+    }
+    await this.db.deleteFrom('family_relation').where('familyId', '=', familyId).where('id', '=', anyUuid(ids)).execute();
+  }
+
+  /**
+  After a merge: drops the family record of each source whose copies are all gone (merged into the
+  target), so the stock cleanup can delete the empty person group (the cleanup never deletes a group
+  that still has a family record). Returns the ones dropped.
+  */
+  async dropMergedFamilyPeople(familyId: string, personGroupIds: string[]): Promise<string[]> {
+    if (personGroupIds.length === 0) {
+      return [];
+    }
+    const rows = await this.db
+      .deleteFrom('family_person')
+      .where('familyId', '=', familyId)
+      .where('personGroupId', '=', anyUuid(personGroupIds))
+      .where((eb) =>
+        eb.not(
+          eb.exists(eb.selectFrom('person').whereRef('person.personGroupId', '=', 'family_person.personGroupId').select('person.ownerId')),
+        ),
+      )
+      .returning('personGroupId')
+      .execute();
+    return rows.map((row) => row.personGroupId);
   }
 
   /**
@@ -775,12 +795,71 @@ export class FamilyRepository {
   // relations
 
   @GenerateSql({ params: [DummyValue.UUID] })
-  getRelations(familyId: string) {
-    return this.db.selectFrom('family_relation').selectAll().where('familyId', '=', familyId).execute();
+  getRelations(familyId: string, db: Kysely<DB> = this.db) {
+    return db.selectFrom('family_relation').selectAll().where('familyId', '=', familyId).execute();
   }
 
-  createRelation(relation: Insertable<FamilyRelationTable>) {
-    return this.db.insertInto('family_relation').values(relation).returningAll().executeTakeFirstOrThrow();
+  /**
+  Takes the family's graph lock for the rest of the transaction. Everything that changes who is related
+  to whom (new relations, merges, a person becoming a pet) validates and writes under this lock, so two
+  requests cannot each check a graph the other is about to change (a third parent, a cycle).
+  */
+  private async lockGraph(trx: Kysely<DB>, familyId: string) {
+    await sql`select pg_advisory_xact_lock(hashtextextended(${`family-graph:${familyId}`}, 0))`.execute(trx);
+  }
+
+  /**
+  Writes relations (and the new person they belong to, if any) in one transaction, after `plan` has
+  checked them against the family's people and relations as read under the graph lock. `plan` throws to
+  refuse; it returns what to write.
+  */
+  async addRelationsLocked(
+    family: { id: string; clusterGroupId: string },
+    plan: (
+      people: Awaited<ReturnType<FamilyRepository['getFamilyPeople']>>,
+      relations: Awaited<ReturnType<FamilyRepository['getRelations']>>,
+    ) => {
+      newPerson: Omit<Insertable<FamilyPersonTable>, 'personGroupId' | 'familyId'> | null;
+      relations: Omit<Insertable<FamilyRelationTable>, 'familyId'>[];
+      /** Relations stored once with the smaller id first (spouse, sibling, friend). */
+      undirected: (type: string) => boolean;
+    },
+  ) {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockGraph(trx, family.id);
+      const [people, existing] = await Promise.all([
+        this.getFamilyPeople(family.id, trx),
+        this.getRelations(family.id, trx),
+      ]);
+      const { newPerson, relations, undirected } = plan(people, existing);
+      return this.insertRelationsIn(trx, family, newPerson, relations, undirected);
+    });
+  }
+
+  /**
+  Updates a person after `check` has looked at the family's people and relations under the graph lock
+  (a person turned into a pet must not keep relations a pet cannot have). `check` throws to refuse.
+  */
+  async updateFamilyPersonChecked(
+    familyId: string,
+    personGroupId: string,
+    values: Updateable<FamilyPersonTable>,
+    check: (
+      people: Awaited<ReturnType<FamilyRepository['getFamilyPeople']>>,
+      relations: Awaited<ReturnType<FamilyRepository['getRelations']>>,
+    ) => void,
+  ) {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockGraph(trx, familyId);
+      const [people, relations] = await Promise.all([this.getFamilyPeople(familyId, trx), this.getRelations(familyId, trx)]);
+      check(people, relations);
+      return trx
+        .updateTable('family_person')
+        .set(values)
+        .where('personGroupId', '=', personGroupId)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+    });
   }
 
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })

@@ -6,7 +6,7 @@ upstream specs that exercise stock paths keep running without the family code. R
 tests can toggle it.
 */
 export const isFamilyEnabled = (): boolean =>
-  process.env.VITEST === 'true' ? process.env.IMMICH_FAMILY_ENABLED === 'true' : true;
+  process.env.VITEST !== 'true' || process.env.IMMICH_FAMILY_ENABLED === 'true';
 
 /** The warning to log at startup when someone still sets IMMICH_FAMILY_ENABLED to something other than true. */
 export const familyFlagWarning = (): string | null => {
