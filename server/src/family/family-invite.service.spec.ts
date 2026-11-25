@@ -9,7 +9,7 @@ describe(FamilyInviteService.name, () => {
   let sut: FamilyInviteService;
   let mocks: ServiceMocks;
 
-  const loginDetails = { clientIp: '127.0.0.1', deviceOS: '', deviceType: '', isSecure: false };
+  const loginDetails = { clientIp: '127.0.0.1', deviceOS: '', deviceType: '', isSecure: false, appVersion: null };
   const dto = { token: 'token', email: 'new@example.com', name: 'New', password: 'password' };
   const invite = {
     id: newUuid(),
