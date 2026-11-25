@@ -113,8 +113,15 @@ export class FamilyService extends BaseService {
     return this.familyRepository.getReport(family.id);
   }
 
+  /**
+  Adding an existing account moves its faces into the family and shares its whole library with everyone,
+  without the account's consent, so only a server admin may do it. Everyone else joins by accepting an invite.
+  */
   async addMember(auth: AuthDto, dto: FamilyMemberCreateDto): Promise<FamilyResponseDto> {
     const membership = await this.requireFamilyAdmin(auth);
+    if (!auth.user.isAdmin) {
+      throw new ForbiddenException('Only a server admin can add an existing account; invite the person instead');
+    }
     await this.addUserToFamily(membership, dto.userId, dto.role, { userId: auth.user.id });
     return this.mapFamily(membership);
   }
