@@ -486,6 +486,19 @@ export class FamilyGraph {
         return { key: relation.key, label: `step-${relation.label}` };
       }
     }
+    // a sibling's (or my partner's sibling's) stepchild: a step-niece or step-nephew
+    for (const parent of this.parents.get(to)?.keys() ?? []) {
+      for (const stepParent of this.spousesOf(parent)) {
+        if (this.parents.get(to)?.has(stepParent)) {
+          continue;
+        }
+        const viaMe = this.blood(from, stepParent);
+        const viaPartner = this.spousesOf(from).map((spouse) => this.blood(spouse, stepParent));
+        if ([viaMe, ...viaPartner].some((blood) => blood?.key === 'sibling' || blood?.key === 'half-sibling')) {
+          return { key: 'niece-nephew', label: `step-${word('niece-nephew', this.gender(to))}` };
+        }
+      }
+    }
     // the other way: I'm a step-grandparent's child, so `to` is my step-niece or step-nephew
     for (const parent of this.parents.get(from)?.keys() ?? []) {
       const level = this.stepAncestorLevel(to, parent);

@@ -263,6 +263,42 @@ describe('the wider family', () => {
     expectNoOverlaps(steps);
   });
 
+  it("shows the partner's brothers and sisters with their children and stepchildren", () => {
+    const graph = buildGraph(
+      people(
+        ['Me', 'male'],
+        ['Kate', 'female'],
+        ['Laura', 'female'],
+        ['Chris', 'male'],
+        ['Jill', 'female'],
+        ['Zane', 'male'],
+        ['Kid'],
+      ),
+      [
+        { id: 'k1', personId: 'Me', relatedPersonId: 'Kate', type: 'spouse', qualifier: null },
+        { id: 'k2', personId: 'Kate', relatedPersonId: 'Laura', type: 'sibling', qualifier: null },
+        { id: 'k3', personId: 'Laura', relatedPersonId: 'Chris', type: 'spouse', qualifier: null },
+        parent('Laura', 'Jill'),
+        parent('Chris', 'Jill'),
+        parent('Chris', 'Zane'),
+        parent('Me', 'Kid'),
+        parent('Kate', 'Kid'),
+      ],
+    );
+    const layout = layoutTree(graph, 'Me');
+    const laura = tile(layout, 'Laura');
+    expect(laura.generation).toBe(0);
+    expect(laura.x).toBeGreaterThan(tile(layout, 'Kate').x);
+    for (const id of ['Jill', 'Zane']) {
+      expect(tile(layout, id).generation).toBe(1);
+      expect(tile(layout, id).x).toBeGreaterThan(tile(layout, 'Kid').x);
+    }
+    // Zane is Laura's stepson: his line is dashed
+    const zaneLine = layout.lines.find((line) => line.points.at(-1)?.[0] === tile(layout, 'Zane').x && line.dashed);
+    expect(zaneLine).toBeDefined();
+    expectNoOverlaps(layout);
+  });
+
   it('leaves pets out of the wider family', () => {
     const graph = buildGraph(
       people(['Gran', 'female'], ['Dad', 'male'], ['Me', 'male'], ['Rex'], ['Sis', 'female'], ['Cat']),

@@ -212,6 +212,16 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
   /** A sibling's children, shown one row under them. */
   const niecesAndNephews = (sibling: string) =>
     down > 0 ? childrenOf(graph, sibling).filter((child) => child !== focusId && !isPet(child)) : [];
+  /** A sibling's stepchildren (their partner's children): step-nieces and step-nephews, also shown. */
+  const stepNieces = (sibling: string) =>
+    down > 0
+      ? partnersOf(graph, sibling)
+          .filter((partner) => !graph.partners.get(sibling)?.get(partner)?.former)
+          .flatMap((partner) => childrenOf(graph, partner))
+          .filter((child) => child !== focusId && !isPet(child) && !graph.parents.get(child)?.has(sibling))
+      : [];
+  /** Everyone shown under a sibling: their children, then their stepchildren (drawn dashed). */
+  const underSibling = (sibling: string) => [...new Set([...niecesAndNephews(sibling), ...stepNieces(sibling)])];
 
   /** An ancestor's current partners who aren't also the child's parents: step-parents, step-grandparents. */
   const stepPartners = (ancestor: string, child: string) =>
@@ -443,7 +453,7 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
   const kidsLeft = kidGroups.length > 0 ? kidGroups[0].left : Infinity;
 
   // ---- siblings to the left, nearest first, each with room under them for their children
-  const nieces = new Map(siblings.map((sibling) => [sibling, niecesAndNephews(sibling)]));
+  const nieces = new Map(siblings.map((sibling) => [sibling, underSibling(sibling)]));
   const anyNieces = siblings.some((sibling) => (nieces.get(sibling)?.length ?? 0) > 0);
   let siblingRight = -left * UNIT - UNIT / 2;
   if (anyNieces) {
@@ -453,6 +463,54 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     const width = Math.max(1, nieces.get(sibling)!.length);
     person(sibling, siblingRight - (width * UNIT) / 2, 0);
     siblingRight -= width * UNIT;
+  }
+
+  // ---- the partner's brothers and sisters to the right of the partner (the current partner on the
+  // right), each with their children and stepchildren under them: nieces and nephews by marriage
+  const kidsRight = kidGroups.length > 0 ? kidGroups.at(-1)!.left + kidGroups.at(-1)!.width * UNIT : -Infinity;
+  const partnerSide = partners.find((partner) => (partnerX.get(partner) ?? 0) > 0 && !isPet(partner));
+  const inLawSiblings = partnerSide
+    ? siblingsOf(graph, partnerSide).filter((sibling) => sibling !== focusId && !placed.has(sibling) && !isPet(sibling))
+    : [];
+  for (const sibling of inLawSiblings) {
+    nieces.set(
+      sibling,
+      underSibling(sibling).filter((kid) => !placed.has(kid)),
+    );
+  }
+  if (partnerSide && inLawSiblings.length > 0) {
+    const rowRight = Math.max(...tiles.filter((t) => t.generation === 0).map((t) => t.x)) + UNIT / 2;
+    const anyInLawNieces = inLawSiblings.some((sibling) => (nieces.get(sibling)?.length ?? 0) > 0);
+    let inLawLeft = anyInLawNieces ? Math.max(rowRight, kidsRight + TILE.gapX) : rowRight;
+    const inLawXs: number[] = [];
+    for (const sibling of inLawSiblings) {
+      const width = Math.max(1, nieces.get(sibling)!.length);
+      const sx = inLawLeft + (width * UNIT) / 2;
+      person(sibling, sx, 0);
+      inLawXs.push(sx);
+      inLawLeft += width * UNIT;
+    }
+    // the partner and their brothers and sisters share a bracket just above them
+    const px = partnerX.get(partnerSide)!;
+    const bracketY = top(0) - 14;
+    lines.push({
+      key: `inlaw-bracket:${partnerSide}`,
+      points: [
+        [px, bracketY],
+        [Math.max(...inLawXs), bracketY],
+      ],
+      dashed: false,
+    });
+    for (const x of [px, ...inLawXs]) {
+      lines.push({
+        key: `inlaw-drop:${partnerSide}:${x}`,
+        points: [
+          [x, bracketY],
+          [x, top(0)],
+        ],
+        dashed: false,
+      });
+    }
   }
 
   // Full siblings (the same birth parents, or recorded siblings with no parents recorded) hang from
@@ -558,6 +616,8 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     stem?: Array<[number, number]>,
     /** False for nieces and nephews: just them, not their children. */
     descend = true,
+    /** Stepchildren, whose lines are dashed. */
+    dashedKids: Set<string> = new Set(),
   ) => {
     const fresh = kids.filter((kid) => !placed.has(kid));
     const next = new Set(seen);
@@ -597,14 +657,14 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
         dashed: false,
       },
     );
-    for (const kx of xs) {
+    for (const [index, kx] of xs.entries()) {
       lines.push({
         key: `kid:${kx}:${parentY}`,
         points: [
           [kx, barY],
           [kx, top(generation * ROW)],
         ],
-        dashed: false,
+        dashed: dashedKids.has(fresh[index]),
       });
     }
   };
@@ -630,13 +690,15 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
             ];
       placeChildren(group.kids, center, 0, 1, new Set([focusId]), stem);
     }
-    // the siblings' children, one row under each sibling
-    for (const sibling of siblings) {
+    // the siblings' (and the partner's siblings') children, one row under each; stepchildren dashed
+    for (const sibling of [...siblings, ...inLawSiblings]) {
       const sx = xOf(sibling);
       const theirs = nieces.get(sibling) ?? [];
-      if (sx !== undefined && theirs.length > 0) {
-        placeChildren(theirs, sx, 0, 1, new Set([focusId, sibling]), undefined, false);
+      if (sx === undefined || theirs.length === 0) {
+        continue;
       }
+      const steps = new Set(theirs.filter((kid) => !graph.parents.get(kid)?.has(sibling)));
+      placeChildren(theirs, sx, 0, 1, new Set([focusId, sibling]), undefined, false, steps);
     }
     // an empty slot only when there are no children yet; otherwise children are added from the panel
     if (editable && kids.length === 0 && !isPet(focusId)) {

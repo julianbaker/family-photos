@@ -204,6 +204,29 @@ describe(FamilyGraph.name, () => {
         expect(stepLabel('hugh', 'me')).toEqual({ key: 'great-grandchild', label: 'step-great-grandson' });
       });
 
+      it('makes a sibling’s or sister-in-law’s stepchild a step-niece or nephew', () => {
+        const inLaws = new FamilyGraph(
+          [
+            ['me', 'male'],
+            ['wife', 'female'],
+            ['wifesSister', 'female'],
+            ['herHusband', 'male'],
+            ['hisSon', 'male'],
+            ['herDaughter', 'female'],
+          ].map(([id, gender]) => ({ id: id!, gender: gender as Gender })),
+          [
+            rel('me', RelationType.Spouse, 'wife'),
+            rel('wife', RelationType.Sibling, 'wifesSister'),
+            rel('wifesSister', RelationType.Spouse, 'herHusband'),
+            parent('herHusband', 'hisSon'),
+            parent('wifesSister', 'herDaughter'),
+          ],
+        );
+        expect(inLaws.relationship('me', 'herDaughter')).toEqual({ key: 'niece-nephew', label: 'niece' });
+        expect(inLaws.relationship('me', 'hisSon')).toEqual({ key: 'niece-nephew', label: 'step-nephew' });
+        expect(inLaws.relationship('wife', 'hisSon')).toEqual({ key: 'niece-nephew', label: 'step-nephew' });
+      });
+
       it('makes a step-grandparent’s own child a step-aunt, and the reverse a step-niece or nephew', () => {
         expect(stepLabel('mother', 'hope')).toEqual({ key: 'aunt-uncle', label: 'step-aunt' });
         expect(stepLabel('me', 'hope')).toEqual({ key: 'great-aunt-uncle', label: 'step-great-aunt' });
