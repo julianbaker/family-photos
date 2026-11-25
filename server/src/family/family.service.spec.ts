@@ -35,3 +35,16 @@ describe(FamilyService.name, () => {
     });
   });
 });
+
+describe('familyRefuseSharedLinks', () => {
+  afterEach(() => {
+    delete process.env.IMMICH_FAMILY_ENABLED;
+  });
+
+  it('refuses public links when the family archive is on, and does nothing when it is off', async () => {
+    const { familyRefuseSharedLinks } = await import('src/family/family-owner-fields.js');
+    expect(() => familyRefuseSharedLinks()).not.toThrow();
+    process.env.IMMICH_FAMILY_ENABLED = 'true';
+    expect(() => familyRefuseSharedLinks()).toThrow('Public sharing is turned off');
+  });
+});

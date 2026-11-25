@@ -13,6 +13,7 @@ import {
   mapSharedLink,
 } from 'src/dtos/shared-link.dto.js';
 import { Permission, SharedLinkType } from 'src/enum.js';
+import { familyRefuseSharedLinks } from 'src/family/family-owner-fields.js';
 import { BaseService } from 'src/services/base.service.js';
 import { asDateTimeString } from 'src/utils/date.js';
 import { OpenGraphTags, findOrFail, getExternalDomain } from 'src/utils/misc.js';
@@ -69,6 +70,7 @@ export class SharedLinkService extends BaseService {
   }
 
   async create(auth: AuthDto, dto: SharedLinkCreateDto): Promise<SharedLinkResponseDto> {
+    familyRefuseSharedLinks();
     switch (dto.type) {
       case SharedLinkType.Album: {
         if (!dto.albumId) {
@@ -150,6 +152,7 @@ export class SharedLinkService extends BaseService {
   }
 
   async addAssets(auth: AuthDto, id: string, dto: AssetIdsDto): Promise<AssetIdsResponseDto[]> {
+    familyRefuseSharedLinks();
     const sharedLink = await this.findOrFail(auth.user.id, id);
     if (sharedLink.type !== SharedLinkType.Individual) {
       throw new BadRequestException('Invalid shared link type');

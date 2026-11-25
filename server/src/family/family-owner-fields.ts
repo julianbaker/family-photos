@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { FamilyHistoryAction } from 'src/family/family.enum.js';
 import { isFamilyEnabled } from 'src/family/family.flag.js';
@@ -93,5 +93,15 @@ export const familyBeforeAssetDelete = async (
     throw new BadRequestException(
       "Only the owner can permanently delete a photo; move it to the owner's trash instead",
     );
+  }
+};
+
+/**
+Public sharing is off in a family archive (owner decision 2026-11-25): photos leave the family by being
+downloaded, never through a public link. Refuses creating links or adding photos to one.
+*/
+export const familyRefuseSharedLinks = () => {
+  if (isFamilyEnabled()) {
+    throw new ForbiddenException('Public sharing is turned off. Download the photos to share them.');
   }
 };

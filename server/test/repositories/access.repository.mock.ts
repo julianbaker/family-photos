@@ -91,7 +91,6 @@ export const newAccessRepositoryMock = (): IAccessRepositoryMock => {
     family: {
       checkAssetEditAccess: vitest.fn().mockResolvedValue(new Set()),
       checkAssetDeleteAccess: vitest.fn().mockResolvedValue(new Set()),
-      checkAssetShareBlocked: vitest.fn().mockResolvedValue(new Set()),
       checkFaceEditAccess: vitest.fn().mockResolvedValue(new Set()),
     },
 

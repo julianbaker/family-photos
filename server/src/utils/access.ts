@@ -191,10 +191,8 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
         auth.user.id,
         ids.difference(isOwner).difference(isAlbum),
       );
-      const granted = isOwner.union(isAlbum).union(isPartner);
-      // family fork: a Viewer may not share other members' photos
-      const blocked = await access.family.checkAssetShareBlocked(auth.user.id, granted.difference(isOwner));
-      return granted.difference(blocked);
+      // family fork: any member may add family photos to albums; public links are off (familyRefuseSharedLinks)
+      return isOwner.union(isAlbum).union(isPartner);
     }
 
     case Permission.AssetFileDownload: {

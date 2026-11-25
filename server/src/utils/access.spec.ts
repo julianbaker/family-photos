@@ -31,25 +31,13 @@ describe('family access grants', () => {
   });
 
   describe(Permission.AssetShare, () => {
-    it('should refuse other members photos for a viewer', async () => {
+    it('should let a family member add another member\'s photo to an album', async () => {
       const access = newAccessRepositoryMock();
       access.asset.checkPartnerAccess.mockResolvedValue(new Set([assetId]));
-      access.family.checkAssetShareBlocked.mockResolvedValue(new Set([assetId]));
-
-      await expect(checkAccess(access as never, { auth, permission: Permission.AssetShare, ids })).resolves.toEqual(
-        new Set(),
-      );
-      expect(access.family.checkAssetShareBlocked).toHaveBeenCalledWith(auth.user.id, ids);
-    });
-
-    it('should allow the caller to share their own photos', async () => {
-      const access = newAccessRepositoryMock();
-      access.asset.checkOwnerAccess.mockResolvedValue(new Set([assetId]));
 
       await expect(checkAccess(access as never, { auth, permission: Permission.AssetShare, ids })).resolves.toEqual(
         ids,
       );
-      expect(access.family.checkAssetShareBlocked).toHaveBeenCalledWith(auth.user.id, new Set());
     });
   });
 });

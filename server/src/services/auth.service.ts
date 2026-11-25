@@ -25,6 +25,7 @@ import { SystemConfig, defaults } from 'src/dtos/config.dto.js';
 import { UserAdminResponseDto, mapUserAdmin } from 'src/dtos/user.dto.js';
 import { AuthType, ImmichCookie, ImmichHeader, ImmichQuery, JobName, Permission } from 'src/enum.js';
 import { OAuthConfig, OAuthRawProfile } from 'src/repositories/oauth.repository.js';
+import { familyRefuseSharedLinks } from 'src/family/family-owner-fields.js';
 import { BaseService } from 'src/services/base.service.js';
 import { isGranted } from 'src/utils/access.js';
 import { generateProfileImage } from 'src/utils/profile-image.js';
@@ -247,6 +248,11 @@ export class AuthService extends BaseService {
       this.getBearerToken(headers) ||
       this.getCookieToken(headers)) as string;
     const apiKey = (headers[ImmichHeader.ApiKey] || queryParams[ImmichQuery.ApiKey]) as string;
+
+    if (shareKey || shareSlug) {
+      // family fork: public links are off, so none opens anything (even one made before)
+      familyRefuseSharedLinks();
+    }
 
     if (shareKey) {
       return this.validateSharedLinkKey(shareKey);

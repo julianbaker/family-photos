@@ -52,31 +52,6 @@ export class FamilyAccess {
     return new Set(rows.map(({ id }) => id));
   }
 
-  /**
-  Sharing (public links, albums) is refused for a Viewer on the photos of other members. Viewers see
-  and download everything but change nothing, and the managed partner mesh would otherwise pass the
-  stock share check. Returns the ids the caller may not share. Their own photos are never in the set.
-  */
-  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID_SET] })
-  @ChunkedSet({ paramIndex: 1 })
-  async checkAssetShareBlocked(userId: string, assetIds: Set<string>): Promise<Set<string>> {
-    if (!isFamilyEnabled() || assetIds.size === 0) {
-      return new Set();
-    }
-
-    const rows = await this.db
-      .selectFrom('asset')
-      .innerJoin('family_member as owner', 'owner.userId', 'asset.ownerId')
-      .innerJoin('family_member as me', 'me.familyId', 'owner.familyId')
-      .select('asset.id')
-      .where('asset.id', 'in', [...assetIds])
-      .where('asset.ownerId', '!=', userId)
-      .where('me.userId', '=', userId)
-      .where('me.role', '=', FamilyRole.Viewer)
-      .execute();
-    return new Set(rows.map(({ id }) => id));
-  }
-
   private async checkAssetAccess(userId: string, assetIds: Set<string>, roles: FamilyRole[]): Promise<Set<string>> {
     if (!isFamilyEnabled() || assetIds.size === 0) {
       return new Set();
