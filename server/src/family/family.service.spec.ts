@@ -34,6 +34,28 @@ describe(FamilyService.name, () => {
       expect(mocks.person.reassignCluster).not.toHaveBeenCalled();
     });
   });
+
+  describe('getBranding', () => {
+    afterEach(() => {
+      delete process.env.IMMICH_FAMILY_APP_URL;
+    });
+
+    it('includes where to get the app, when configured', async () => {
+      process.env.IMMICH_FAMILY_APP_URL = 'https://apps.apple.com/app/id123';
+      mocks.family.getAnyFamily.mockResolvedValue({ wordmark: 'Smiths' } as never);
+
+      await expect(sut.getBranding()).resolves.toEqual({
+        wordmark: 'Smiths',
+        appUrl: 'https://apps.apple.com/app/id123',
+      });
+    });
+
+    it('has no app link when none is configured', async () => {
+      mocks.family.getAnyFamily.mockResolvedValue(void 0);
+
+      await expect(sut.getBranding()).resolves.toEqual({ wordmark: 'sibred', appUrl: null });
+    });
+  });
 });
 
 describe('familyRefuseSharedLinks', () => {

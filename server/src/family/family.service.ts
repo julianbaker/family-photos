@@ -307,7 +307,9 @@ export class FamilyService extends BaseService {
   /** Public: the website shows the wordmark on the sign-in page, before anyone signs in. */
   async getBranding(): Promise<FamilyBrandingResponseDto> {
     const family = isFamilyEnabled() ? await this.familyRepository.getAnyFamily() : undefined;
-    return { wordmark: family?.wordmark?.trim() || 'sibred' };
+    // the same app link the invite page shows, for pages that have no invite (a sign-in link opened
+    // on a computer, or on a phone without the app)
+    return { wordmark: family?.wordmark?.trim() || 'sibred', appUrl: process.env.IMMICH_FAMILY_APP_URL || null };
   }
 
   private async requireFamilyAdmin(auth: AuthDto): Promise<FamilyMembership> {

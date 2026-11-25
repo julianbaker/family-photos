@@ -23,7 +23,10 @@ const FamilyUpdateSchema = z
   .meta({ id: 'FamilyUpdateDto' });
 
 const FamilyBrandingResponseSchema = z
-  .object({ wordmark: z.string().describe('Text shown in place of a logo on the website') })
+  .object({
+    wordmark: z.string().describe('Text shown in place of a logo on the website'),
+    appUrl: z.string().nullable().describe('Where to get the iOS app, if configured'),
+  })
   .meta({ id: 'FamilyBrandingResponseDto' });
 
 const FamilyMemberCreateSchema = z
