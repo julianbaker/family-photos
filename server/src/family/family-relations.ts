@@ -437,6 +437,10 @@ export class FamilyGraph {
     for (const spouse of this.spousesOf(from)) {
       const blood = this.blood(spouse, to);
       if (blood && blood.key !== 'self') {
+        // a partner's nieces and nephews are your nieces and nephews too, not "in-laws"
+        if (blood.key.endsWith('niece-nephew')) {
+          return blood;
+        }
         const key = IN_LAW_KEYS[blood.key];
         if (key) {
           return { key, label: word(key, this.gender(to)) };

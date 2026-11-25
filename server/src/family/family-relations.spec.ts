@@ -152,6 +152,8 @@ describe(FamilyGraph.name, () => {
       ['wifesBrother', 'me', 'brother-in-law'],
       ['me', 'sonsWife', 'daughter-in-law'],
       ['me', 'auntsHusband', 'uncle by marriage'],
+      // a partner's niece is a niece, not a "niece-in-law"
+      ['auntsHusband', 'sister', 'niece'],
     ])('%s → %s is %s', (from, to, expected) => {
       expect(label(from, to)).toBe(expected);
     });
