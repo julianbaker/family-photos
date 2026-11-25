@@ -25493,7 +25493,7 @@
         "type": "object"
       },
       "FamilyRelativeKind": {
-        "description": "How the relative is related to the person: their father, partner, pet; or, for a pet, its owner",
+        "description": "How the relative is related to the person: their father, partner, pet, godmother; or, for a pet, its owner",
         "enum": [
           "father",
           "mother",
@@ -25502,7 +25502,11 @@
           "child",
           "sibling",
           "pet",
-          "owner"
+          "owner",
+          "godfather",
+          "godmother",
+          "godparent",
+          "godchild"
         ],
         "type": "string"
       },

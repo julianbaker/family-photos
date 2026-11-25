@@ -298,6 +298,16 @@ describe('pets', () => {
     expect(graph.relationship('rex', 'mum')).toEqual({ key: 'owner-relative', label: "owner's daughter" });
   });
 
+  it('only counts a pet through close family: not a great-grandparent’s dog', () => {
+    // Rex belongs to my son's great-grandparents
+    expect(graph.relationship('son', 'rex')).toBeNull();
+    expect(graph.relatives('son').some((relative) => relative.personId === 'rex')).toBe(false);
+    // and from Rex's page, his owners' great-grandson isn't listed
+    expect(graph.relationship('rex', 'son')).toBeNull();
+    // a grandparent's dog still is
+    expect(graph.relationship('me', 'rex')).toEqual({ key: 'pet', label: "grandparents' pet" });
+  });
+
   it('never links people together through a pet', () => {
     const lonely = new FamilyGraph(petPeople, [rel('me', 'bo'), rel('gran', 'bo'), rel('bo', 'son', RelationType.Sibling)]);
     expect(lonely.relationship('me', 'gran')).toBeNull();

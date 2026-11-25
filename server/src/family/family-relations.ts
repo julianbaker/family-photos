@@ -4,6 +4,23 @@ spouse, sibling, godparent (directed), friend and custom. Grandparents, cousins,
 are computed here and never stored. Pure functions, no database.
 */
 
+
+/** Close family: whose pets count as your relations (and whose people count as a pet's). */
+const CLOSE_FAMILY = new Set([
+  'parent',
+  'adoptive-parent',
+  'step-parent',
+  'spouse',
+  'sibling',
+  'half-sibling',
+  'step-sibling',
+  'child',
+  'adopted-child',
+  'step-child',
+  'grandparent',
+  'grandchild',
+]);
+
 export type Gender = 'female' | 'male' | null;
 
 export enum RelationType {
@@ -470,7 +487,10 @@ export class FamilyGraph {
     return this.people.get(id)?.pet === true;
   }
 
-  /** A pet, seen by someone: "pet" to its owners, else through them ("grandmother's pet"). */
+  /**
+  A pet, seen by someone: "pet" to its owners, else through them ("grandmother's pet"), but only when
+  an owner is close family: a cousin's or great-aunt's dog isn't a relation.
+  */
   private petRelationship(from: string, pet: string): Relationship | null {
     const owners = [...(this.petOwners.get(pet) ?? [])];
     if (owners.includes(from)) {
@@ -478,7 +498,7 @@ export class FamilyGraph {
     }
     const through = owners
       .map((owner) => this.relationship(from, owner))
-      .filter((relationship): relationship is Relationship => relationship !== null);
+      .filter((relationship): relationship is Relationship => relationship !== null && CLOSE_FAMILY.has(relationship.key));
     if (through.length === 0) {
       return null;
     }
@@ -497,7 +517,8 @@ export class FamilyGraph {
     }
     for (const owner of owners) {
       const relationship = this.relationship(owner, to);
-      if (relationship && relationship.key !== 'self') {
+      // only the owner's close family (and their pets), like a pet seen from the other side
+      if (relationship && relationship.key !== 'self' && (relationship.key === 'pet' || CLOSE_FAMILY.has(relationship.key))) {
         // another pet: "owner's pet" when it's the owner's own, else through the owner ("owner's parents' pet")
         if (relationship.key === 'pet') {
           return { key: 'pet', label: relationship.label === 'pet' ? "owner's pet" : `owner's ${relationship.label}` };

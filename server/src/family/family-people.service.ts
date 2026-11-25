@@ -425,7 +425,7 @@ export class FamilyPeopleService extends BaseService {
   }
 
   /**
-  Adds a father, mother, parent, partner, child, sibling, pet or (for a pet) owner: someone already in
+  Adds a father, mother, parent, partner, child, sibling, godparent, godchild, pet or (for a pet) owner: someone already in
   the family or a new person, plus the one companion relation asked for. Every relation is checked
   against the family's rules first and everything is written in one transaction, so a rejected relation
   never leaves a new person behind.
@@ -455,7 +455,12 @@ export class FamilyPeopleService extends BaseService {
     }
 
     const other = dto.existingId ?? 'NEW';
-    const gender = dto.kind === 'father' ? 'male' : dto.kind === 'mother' ? 'female' : null;
+    const gender =
+      dto.kind === 'father' || dto.kind === 'godfather'
+        ? 'male'
+        : dto.kind === 'mother' || dto.kind === 'godmother'
+          ? 'female'
+          : null;
     const parent = (from: string, to: string) => ({ personId: from, relatedPersonId: to, type: RelationType.Parent });
     const planned: Array<{ personId: string; relatedPersonId: string; type: RelationType }> = [];
     switch (dto.kind) {
@@ -479,6 +484,17 @@ export class FamilyPeopleService extends BaseService {
       }
       case 'partner': {
         planned.push({ personId: id, relatedPersonId: other, type: RelationType.Spouse });
+        break;
+      }
+      case 'godfather':
+      case 'godmother':
+      case 'godparent': {
+        // a godparent relation runs from the godparent to the godchild
+        planned.push({ personId: other, relatedPersonId: id, type: RelationType.Godparent });
+        break;
+      }
+      case 'godchild': {
+        planned.push({ personId: id, relatedPersonId: other, type: RelationType.Godparent });
         break;
       }
       default: {

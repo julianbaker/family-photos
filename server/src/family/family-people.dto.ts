@@ -93,8 +93,21 @@ const FamilyRelativeResponseSchema = z
   .meta({ id: 'FamilyRelativeResponseDto' });
 
 const RelativeKindSchema = z
-  .enum(['father', 'mother', 'parent', 'partner', 'child', 'sibling', 'pet', 'owner'])
-  .describe('How the relative is related to the person: their father, partner, pet; or, for a pet, its owner')
+  .enum([
+    'father',
+    'mother',
+    'parent',
+    'partner',
+    'child',
+    'sibling',
+    'pet',
+    'owner',
+    'godfather',
+    'godmother',
+    'godparent',
+    'godchild',
+  ])
+  .describe('How the relative is related to the person: their father, partner, pet, godmother; or, for a pet, its owner')
   .meta({ id: 'FamilyRelativeKind' });
 
 const FamilyRelativeCreateSchema = z
