@@ -213,8 +213,20 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
   const niecesAndNephews = (sibling: string) =>
     down > 0 ? childrenOf(graph, sibling).filter((child) => child !== focusId && !isPet(child)) : [];
 
+  /** An ancestor's current partners who aren't also the child's parents: step-parents, step-grandparents. */
+  const stepPartners = (ancestor: string, child: string) =>
+    partnersOf(graph, ancestor).filter(
+      (partner) =>
+        !graph.partners.get(ancestor)?.get(partner)?.former &&
+        !graph.parents.get(child)?.has(partner) &&
+        partner !== focusId &&
+        !isPet(partner),
+    );
+  /** Step-parents of the focus, placed with the parents, and where: their own children join the middle row. */
+  const stepParentsPlaced: Array<{ id: string; x: number; side: -1 | 1 }> = [];
+
   // ---- ancestors: each person's parents centred above them, widths from their own ancestry
-  const unitsAbove = (id: string, depth: number, seen: Set<string>): number => {
+  const unitsAbove = (id: string, depth: number, seen: Set<string>, child?: string): number => {
     if (depth >= up || seen.has(id)) {
       return 1;
     }
@@ -223,10 +235,11 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     let units = slots;
     const next = new Set(seen).add(id);
     for (const parent of parents) {
-      units += unitsAbove(parent, depth + 1, next);
+      units += unitsAbove(parent, depth + 1, next, id);
     }
-    // the focus's parents also make room for their brothers and sisters beside them
-    const row = depth === 1 ? 1 + auntsAndUncles(id).length : 1;
+    // room beside them for their other partners (step-parents), and, for the focus's parents, their
+    // brothers and sisters
+    const row = 1 + (child ? stepPartners(id, child).length : 0) + (depth === 1 ? auntsAndUncles(id).length : 0);
     return Math.max(row, units);
   };
 
@@ -262,7 +275,7 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
       return;
     }
     const next = new Set(seen).add(id);
-    const widths = parents.map((parent) => unitsAbove(parent, depth + 1, next));
+    const widths = parents.map((parent) => unitsAbove(parent, depth + 1, next, id));
     const total = widths.reduce((a, b) => a + b, 0) + slots.length;
     let cursor = x - (total * UNIT) / 2;
     const generation = -(depth + 1);
@@ -273,22 +286,43 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
       // the focus's parents: their brothers and sisters on the outer side (the first parent's to the
       // left, the others' to the right), the group centred in the parent's share of the row
       const aunts = depth === 0 ? auntsAndUncles(parent).filter((aunt) => !placed.has(aunt)) : [];
+      // their other current partners (step-parents) right beside them, then their brothers and sisters
+      const steps = stepPartners(parent, id).filter((partner) => !placed.has(partner) && !aunts.includes(partner));
       const outward = index === 0 && parents.length + slots.length > 1 ? -1 : 1;
-      const groupLeft = centre - ((aunts.length + 1) * UNIT) / 2;
-      const px = outward < 0 ? groupLeft + (aunts.length + 0.5) * UNIT : groupLeft + UNIT / 2;
+      const group = outward < 0 ? [...aunts, ...[...steps].reverse(), parent] : [parent, ...steps, ...aunts];
+      const groupLeft = centre - (group.length * UNIT) / 2;
+      const xOfMember = (member: string) => groupLeft + (group.indexOf(member) + 0.5) * UNIT;
+      const px = xOfMember(parent);
       person(parent, px, generation);
-      const auntXs = aunts.map((aunt, i) => {
-        const ax = outward < 0 ? groupLeft + (i + 0.5) * UNIT : groupLeft + (i + 1.5) * UNIT;
+      const auntXs = aunts.map((aunt) => {
+        const ax = xOfMember(aunt);
         person(aunt, ax, generation);
         return ax;
       });
+      for (const [i, step] of steps.entries()) {
+        const sx = xOfMember(step);
+        person(step, sx, generation);
+        // a couple line at mid height, each further partner a little lower
+        const lineY = generation * ROW + i * 14;
+        lines.push({
+          key: `step-couple:${parent}:${step}`,
+          points: [
+            [px + (outward * TILE.width) / 2, lineY],
+            [sx - (outward * TILE.width) / 2, lineY],
+          ],
+          dashed: false,
+        });
+        if (depth === 0) {
+          stepParentsPlaced.push({ id: step, x: sx, side: outward < 0 ? -1 : 1 });
+        }
+      }
       xs.push(px);
       if (graph.parents.get(id)?.get(parent)?.indirect) {
         dashedXs.add(px);
       }
       cursor += widths[index] * UNIT;
-      // grandparents centred over the parent and their brothers and sisters, joined to all of them
-      placeAncestors(parent, aunts.length > 0 ? centre : px, depth + 1, next, [px, ...auntXs]);
+      // grandparents centred over the parent's share of the row, joined to the parent and their brothers and sisters
+      placeAncestors(parent, group.length > 1 ? centre : px, depth + 1, next, [px, ...auntXs]);
     }
     for (const kind of slots) {
       const sx = cursor + UNIT / 2;
@@ -443,6 +477,42 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     }
   }
   placeAncestors(focusId, 0, 0, new Set(), [0, ...full.map((sibling) => xOf(sibling)!)]);
+
+  // ---- step-siblings: a step-parent's own children, at the end of the middle row on that
+  // step-parent's side, hanging from their own line
+  const rowZero = () => tiles.filter((t) => t.generation === 0).map((t) => t.x);
+  const stepBarY = top(0) - TILE.gapY / 2 + 24;
+  for (const { id: stepParent, x: spx, side } of stepParentsPlaced) {
+    const theirs = childrenOf(graph, stepParent).filter((kid) => kid !== focusId && !placed.has(kid) && !isPet(kid));
+    if (theirs.length === 0) {
+      continue;
+    }
+    const edge = side < 0 ? Math.min(...rowZero()) : Math.max(...rowZero());
+    const kidXs = theirs.map((kid, i) => {
+      const kx = edge + side * (i + 1) * UNIT;
+      person(kid, kx, 0);
+      return kx;
+    });
+    lines.push(
+      {
+        key: `step-kids:${stepParent}`,
+        points: [
+          [spx, bottom(-ROW)],
+          [spx, stepBarY],
+          [side < 0 ? Math.min(...kidXs) : Math.max(...kidXs), stepBarY],
+        ],
+        dashed: false,
+      },
+      ...kidXs.map((kx) => ({
+        key: `step-kid:${stepParent}:${kx}`,
+        points: [
+          [kx, stepBarY],
+          [kx, top(0)],
+        ] as Array<[number, number]>,
+        dashed: false,
+      })),
+    );
+  }
 
   const halfBarY = top(0) - TILE.gapY / 2 + 12;
   for (const parent of focusParents) {

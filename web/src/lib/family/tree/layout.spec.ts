@@ -236,6 +236,33 @@ describe('the wider family', () => {
     expectNoOverlaps(layout);
   });
 
+  it("puts a parent's new partner beside them, and that step-parent's own children in the middle row", () => {
+    // Fay's father Carl is now with Erin: Erin is Fay's stepmother
+    const layout = layoutTree(family(), 'Fay');
+    const erin = tile(layout, 'Erin');
+    expect(erin.generation).toBe(tile(layout, 'Carl').generation);
+    expect(Math.abs(erin.x - tile(layout, 'Carl').x)).toBe(TILE.width + TILE.gapX);
+    expectNoOverlaps(layout);
+
+    // Me's mum married Steve, who has a daughter Sara from before: Sara is Me's stepsister
+    const graph = buildGraph(
+      people(['Dad', 'male'], ['Mum', 'female'], ['Me', 'male'], ['Steve', 'male'], ['Sara', 'female']),
+      [
+        parent('Dad', 'Me'),
+        parent('Mum', 'Me'),
+        { id: 's1', personId: 'Mum', relatedPersonId: 'Steve', type: 'spouse', qualifier: null },
+        parent('Steve', 'Sara'),
+      ],
+    );
+    const steps = layoutTree(graph, 'Me');
+    expect(tile(steps, 'Steve').generation).toBe(-1);
+    // Mum is the second parent, so Steve and his daughter are on the right
+    expect(tile(steps, 'Steve').x).toBeGreaterThan(tile(steps, 'Mum').x);
+    expect(tile(steps, 'Sara').generation).toBe(0);
+    expect(tile(steps, 'Sara').x).toBeGreaterThan(tile(steps, 'Me').x);
+    expectNoOverlaps(steps);
+  });
+
   it('leaves pets out of the wider family', () => {
     const graph = buildGraph(
       people(['Gran', 'female'], ['Dad', 'male'], ['Me', 'male'], ['Rex'], ['Sis', 'female'], ['Cat']),
