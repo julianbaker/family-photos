@@ -201,6 +201,18 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     return [gender === 'male' ? 'mother' : gender === 'female' ? 'father' : 'parent'];
   };
 
+  // ---- the wider family: aunts and uncles beside the parents, nieces and nephews under the siblings
+  // (people only: a grandparent's dog isn't an aunt, a sister's cat isn't a niece)
+  const focusParentIds = new Set(parentsOf(graph, focusId));
+  /** A parent's brothers and sisters, shown beside them. */
+  const auntsAndUncles = (parent: string) =>
+    siblingsOf(graph, parent).filter(
+      (sibling) => sibling !== focusId && !focusParentIds.has(sibling) && !isPet(sibling),
+    );
+  /** A sibling's children, shown one row under them. */
+  const niecesAndNephews = (sibling: string) =>
+    down > 0 ? childrenOf(graph, sibling).filter((child) => child !== focusId && !isPet(child)) : [];
+
   // ---- ancestors: each person's parents centred above them, widths from their own ancestry
   const unitsAbove = (id: string, depth: number, seen: Set<string>): number => {
     if (depth >= up || seen.has(id)) {
@@ -213,7 +225,9 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     for (const parent of parents) {
       units += unitsAbove(parent, depth + 1, next);
     }
-    return Math.max(1, units);
+    // the focus's parents also make room for their brothers and sisters beside them
+    const row = depth === 1 ? 1 + auntsAndUncles(id).length : 1;
+    return Math.max(row, units);
   };
 
   const placeAncestors = (id: string, x: number, depth: number, seen: Set<string>, childXs: number[]) => {
@@ -223,6 +237,28 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     const parents = parentsOf(graph, id).filter((parent) => !seen.has(parent) && !placed.has(parent));
     const slots = editable && depth < 2 ? missingParents(id) : [];
     if (parents.length === 0 && slots.length === 0) {
+      // brothers and sisters with no parents recorded still share a bracket above them
+      if (childXs.length > 1) {
+        const barY = top(-depth * ROW) - TILE.gapY / 2;
+        lines.push({
+          key: `bracket:${id}:${depth}`,
+          points: [
+            [Math.min(...childXs), barY],
+            [Math.max(...childXs), barY],
+          ],
+          dashed: false,
+        });
+        for (const cx of childXs) {
+          lines.push({
+            key: `bracket:${id}:${cx}`,
+            points: [
+              [cx, barY],
+              [cx, top(-depth * ROW)],
+            ],
+            dashed: false,
+          });
+        }
+      }
       return;
     }
     const next = new Set(seen).add(id);
@@ -233,14 +269,26 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     const xs: number[] = [];
     const dashedXs = new Set<number>();
     for (const [index, parent] of parents.entries()) {
-      const px = cursor + (widths[index] * UNIT) / 2;
+      const centre = cursor + (widths[index] * UNIT) / 2;
+      // the focus's parents: their brothers and sisters on the outer side (the first parent's to the
+      // left, the others' to the right), the group centred in the parent's share of the row
+      const aunts = depth === 0 ? auntsAndUncles(parent).filter((aunt) => !placed.has(aunt)) : [];
+      const outward = index === 0 && parents.length + slots.length > 1 ? -1 : 1;
+      const groupLeft = centre - ((aunts.length + 1) * UNIT) / 2;
+      const px = outward < 0 ? groupLeft + (aunts.length + 0.5) * UNIT : groupLeft + UNIT / 2;
       person(parent, px, generation);
+      const auntXs = aunts.map((aunt, i) => {
+        const ax = outward < 0 ? groupLeft + (i + 0.5) * UNIT : groupLeft + (i + 1.5) * UNIT;
+        person(aunt, ax, generation);
+        return ax;
+      });
       xs.push(px);
       if (graph.parents.get(id)?.get(parent)?.indirect) {
         dashedXs.add(px);
       }
       cursor += widths[index] * UNIT;
-      placeAncestors(parent, px, depth + 1, next, [px]);
+      // grandparents centred over the parent and their brothers and sisters, joined to all of them
+      placeAncestors(parent, aunts.length > 0 ? centre : px, depth + 1, next, [px, ...auntXs]);
     }
     for (const kind of slots) {
       const sx = cursor + UNIT / 2;
@@ -296,7 +344,6 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     partnerX.set(partner, index === 1 ? -++left * UNIT : ++right * UNIT);
   }
   person(focusId, 0, 0, true);
-  for (const [index, sibling] of siblings.entries()) person(sibling, -(left + siblings.length - index) * UNIT, 0);
   for (const [index, partner] of partners.entries()) {
     const px = partnerX.get(partner)!;
     person(partner, px, 0);
@@ -316,6 +363,62 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
   // an empty slot only when there's no partner yet; otherwise partners are added from the panel
   if (editable && partners.length === 0 && !isPet(focusId)) {
     slot('partner', focusId, UNIT, 0);
+  }
+
+  // ---- the focus's children, planned now (placed further down) so the siblings' children can sit
+  // clear of them: grouped by the other parent, each group under its couple
+  const unitsBelow = (id: string, depth: number, seen: Set<string>): number => {
+    if (depth >= down || seen.has(id)) {
+      return 1;
+    }
+    const next = new Set(seen).add(id);
+    const kids = childrenOf(graph, id).filter((child) => !seen.has(child));
+    return Math.max(
+      1,
+      kids.reduce((sum, child) => sum + unitsBelow(child, depth + 1, next), 0),
+    );
+  };
+  const focusKids = down > 0 ? childrenOf(graph, focusId) : [];
+  const kidGroups: Array<{ anchor: number; startY: number; kids: string[]; left: number; width: number }> = [];
+  {
+    const remaining = new Set(focusKids);
+    const partnerGroups: Array<{ anchor: number; startY: number; kids: string[] }> = [];
+    for (const [index, partner] of partners.entries()) {
+      const shared = focusKids.filter((kid) => graph.parents.get(kid)?.has(partner));
+      for (const kid of shared) remaining.delete(kid);
+      if (shared.length > 0) {
+        partnerGroups.push({ anchor: partnerX.get(partner)! / 2, startY: coupleY(index), kids: shared });
+      }
+    }
+    const groups = [
+      ...(remaining.size > 0 ? [{ anchor: 0, startY: TILE.height / 2, kids: [...remaining] }] : []),
+      ...partnerGroups,
+    ].sort((a, b) => a.anchor - b.anchor);
+    // groups side by side without overlapping, each as close to its parents as it can be
+    let lastRight = -Infinity;
+    for (const group of groups) {
+      const width = group.kids.reduce((sum, kid) => sum + unitsBelow(kid, 1, new Set([focusId])), 0);
+      if (width === 0) {
+        continue;
+      }
+      const groupLeft = Math.max(group.anchor - (width * UNIT) / 2, lastRight);
+      kidGroups.push({ ...group, left: groupLeft, width });
+      lastRight = groupLeft + width * UNIT;
+    }
+  }
+  const kidsLeft = kidGroups.length > 0 ? kidGroups[0].left : Infinity;
+
+  // ---- siblings to the left, nearest first, each with room under them for their children
+  const nieces = new Map(siblings.map((sibling) => [sibling, niecesAndNephews(sibling)]));
+  const anyNieces = siblings.some((sibling) => (nieces.get(sibling)?.length ?? 0) > 0);
+  let siblingRight = -left * UNIT - UNIT / 2;
+  if (anyNieces) {
+    siblingRight = Math.min(siblingRight, kidsLeft - TILE.gapX);
+  }
+  for (const sibling of [...siblings].reverse()) {
+    const width = Math.max(1, nieces.get(sibling)!.length);
+    person(sibling, siblingRight - (width * UNIT) / 2, 0);
+    siblingRight -= width * UNIT;
   }
 
   // Full siblings (the same birth parents, or recorded siblings with no parents recorded) hang from
@@ -371,17 +474,6 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
   }
 
   // ---- descendants: children grouped by their other parent, under that couple
-  const unitsBelow = (id: string, depth: number, seen: Set<string>): number => {
-    if (depth >= down || seen.has(id)) {
-      return 1;
-    }
-    const next = new Set(seen).add(id);
-    const kids = childrenOf(graph, id).filter((child) => !seen.has(child));
-    return Math.max(
-      1,
-      kids.reduce((sum, child) => sum + unitsBelow(child, depth + 1, next), 0),
-    );
-  };
 
   /**
   Children centred on `centerX` one row below `parentY`, hanging from a bar. `stem` is the line
@@ -394,10 +486,12 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     depth: number,
     seen: Set<string>,
     stem?: Array<[number, number]>,
+    /** False for nieces and nephews: just them, not their children. */
+    descend = true,
   ) => {
     const fresh = kids.filter((kid) => !placed.has(kid));
     const next = new Set(seen);
-    const widths = fresh.map((kid) => unitsBelow(kid, depth, next));
+    const widths = fresh.map((kid) => (descend ? unitsBelow(kid, depth, next) : 1));
     const total = widths.reduce((a, b) => a + b, 0);
     if (total === 0) {
       return;
@@ -410,7 +504,7 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
       person(kid, kx, generation);
       xs.push(kx);
       cursor += widths[index] * UNIT;
-      if (depth < down) {
+      if (descend && depth < down) {
         placeChildren(childrenOf(graph, kid), kx, generation * ROW, depth + 1, new Set(next).add(kid));
       }
     }
@@ -446,34 +540,11 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
   };
 
   if (down > 0) {
-    const kids = childrenOf(graph, focusId);
-    // group by the other parent: children with no recorded other parent hang from the person,
-    // the rest from the line between the person and that partner
-    const groups: Array<{ anchor: number; startY: number; kids: string[] }> = [];
-    const remaining = new Set(kids);
-    const partnerGroups: typeof groups = [];
-    for (const [index, partner] of partners.entries()) {
-      const shared = kids.filter((kid) => graph.parents.get(kid)?.has(partner));
-      for (const kid of shared) remaining.delete(kid);
-      if (shared.length > 0) {
-        partnerGroups.push({ anchor: partnerX.get(partner)! / 2, startY: coupleY(index), kids: shared });
-      }
-    }
-    if (remaining.size > 0) {
-      groups.push({ anchor: 0, startY: TILE.height / 2, kids: [...remaining] });
-    }
-    groups.push(...partnerGroups);
-    groups.sort((a, b) => a.anchor - b.anchor);
-    // groups side by side without overlapping, each as close to its parents as it can be
+    const kids = focusKids;
     const barY = TILE.height / 2 + TILE.gapY / 2;
     const elbowY = TILE.height / 2 + TILE.gapY / 4;
-    let lastRight = -Infinity;
-    for (const group of groups) {
-      const width = group.kids.reduce((sum, kid) => sum + unitsBelow(kid, 1, new Set([focusId])), 0);
-      if (width === 0) {
-        continue;
-      }
-      const left = Math.max(group.anchor - (width * UNIT) / 2, lastRight);
+    for (const group of kidGroups) {
+      const { left, width } = group;
       const center = left + (width * UNIT) / 2;
       const stem: Array<[number, number]> =
         center === group.anchor
@@ -488,7 +559,14 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
               [center, barY],
             ];
       placeChildren(group.kids, center, 0, 1, new Set([focusId]), stem);
-      lastRight = left + width * UNIT;
+    }
+    // the siblings' children, one row under each sibling
+    for (const sibling of siblings) {
+      const sx = xOf(sibling);
+      const theirs = nieces.get(sibling) ?? [];
+      if (sx !== undefined && theirs.length > 0) {
+        placeChildren(theirs, sx, 0, 1, new Set([focusId, sibling]), undefined, false);
+      }
     }
     // an empty slot only when there are no children yet; otherwise children are added from the panel
     if (editable && kids.length === 0 && !isPet(focusId)) {

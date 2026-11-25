@@ -180,6 +180,74 @@ describe('family tree layout', () => {
   });
 });
 
+describe('the wider family', () => {
+  it("shows a parent's brothers and sisters beside them, on the outer side", () => {
+    // Fay's father Carl has a sister, Cleo
+    const layout = layoutTree(family(), 'Fay');
+    const carl = tile(layout, 'Carl');
+    const cleo = tile(layout, 'Cleo');
+    expect(cleo.generation).toBe(carl.generation);
+    // Carl is the first parent, so his sister goes to his left, away from Dora
+    expect(cleo.x).toBeLessThan(carl.x);
+    expect(tile(layout, 'Dora').x).toBeGreaterThan(carl.x);
+    // and joined to their parents, Ada and Bert, above them
+    expect(tile(layout, 'Ada').generation).toBe(carl.generation - 1);
+    expectNoOverlaps(layout);
+  });
+
+  it("shows a sibling's children one row under them, clear of the person's own children", () => {
+    // Gus's sister Fay has a daughter, Ivy
+    const layout = layoutTree(family(), 'Gus');
+    const fay = tile(layout, 'Fay');
+    const ivy = tile(layout, 'Ivy');
+    expect(ivy.generation).toBe(fay.generation + 1);
+    expect(ivy.x).toBeCloseTo(fay.x);
+    expectNoOverlaps(layout);
+  });
+
+  it("keeps nieces and nephews left of the person's own children", () => {
+    const graph = buildGraph(
+      people(
+        ['Mum', 'female'],
+        ['Me', 'male', '1990-01-01'],
+        ['Sis', 'female', '1988-01-01'],
+        ['N1'],
+        ['N2'],
+        ['K1'],
+        ['K2'],
+        ['K3'],
+      ),
+      [
+        parent('Mum', 'Me'),
+        parent('Mum', 'Sis'),
+        parent('Sis', 'N1'),
+        parent('Sis', 'N2'),
+        parent('Me', 'K1'),
+        parent('Me', 'K2'),
+        parent('Me', 'K3'),
+      ],
+    );
+    const layout = layoutTree(graph, 'Me');
+    const kidsLeft = Math.min(...['K1', 'K2', 'K3'].map((id) => tile(layout, id).x));
+    for (const niece of ['N1', 'N2']) {
+      expect(tile(layout, niece).generation).toBe(1);
+      expect(tile(layout, niece).x).toBeLessThan(kidsLeft);
+    }
+    expectNoOverlaps(layout);
+  });
+
+  it('leaves pets out of the wider family', () => {
+    const graph = buildGraph(
+      people(['Gran', 'female'], ['Dad', 'male'], ['Me', 'male'], ['Rex'], ['Sis', 'female'], ['Cat']),
+      [parent('Gran', 'Dad'), parent('Gran', 'Rex'), parent('Dad', 'Me'), parent('Dad', 'Sis'), parent('Sis', 'Cat')],
+    );
+    const layout = layoutTree(graph, 'Me', { isPet: (id) => id === 'Rex' || id === 'Cat' });
+    const shown = layout.tiles.filter((t) => t.kind === 'person').map((t) => (t.kind === 'person' ? t.personId : ''));
+    expect(shown).not.toContain('Rex');
+    expect(shown).not.toContain('Cat');
+  });
+});
+
 describe('pets', () => {
   it('gives a pet no parent, partner or child slots, and no lines to empty slots', () => {
     const graph = buildGraph(people(['Ann', 'female'], ['Rex']), [parent('Ann', 'Rex')]);
