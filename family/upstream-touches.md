@@ -73,3 +73,4 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `server/src/schema/migrations/ORDER` | appends `1795600000000-FamilyAppLoginCodes` and `1795610000000-FamilyInvitePerson` | sign-in codes table; invites tied to a family person |
 | `server/src/services/index.ts`, `server/src/controllers/index.ts` | registers `FamilyAppLoginService`, `FamilyAppLoginController` | `POST /family/app-login-codes` and `/redeem` |
 | `web/src/routes/app-login/` (new) | public page a one-time sign-in link opens in a browser | offers the app through its `sibred://` link; fork-only |
+| `docker/example.env` | `IMMICH_VERSION=v3.4.2` instead of `v3` | the machine-learning image must match the Immich version sibred is built on |
