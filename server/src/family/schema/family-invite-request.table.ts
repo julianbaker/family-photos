@@ -13,6 +13,7 @@ import { UpdateIdColumn, UpdatedAtTrigger } from 'src/decorators.js';
 import { FamilyInviteRequestStatus } from 'src/family/family.enum.js';
 import { FamilyInviteTable } from 'src/family/schema/family-invite.table.js';
 import { FamilyTable } from 'src/family/schema/family.table.js';
+import { PersonGroupTable } from 'src/schema/tables/person-group.table.js';
 import { UserTable } from 'src/schema/tables/user.table.js';
 
 /** A member asks for someone to be invited; an admin approves (which creates a link) or declines. */
@@ -38,6 +39,10 @@ export class FamilyInviteRequestTable {
 
   @Column({ type: 'character varying', nullable: true })
   note!: string | null;
+
+  /** The family person to invite, when the member asked from that person's page. */
+  @ForeignKeyColumn(() => PersonGroupTable, { onDelete: 'SET NULL', onUpdate: 'CASCADE', nullable: true })
+  personId!: string | null;
 
   @Column({ type: 'character varying', default: FamilyInviteRequestStatus.Pending })
   status!: Generated<FamilyInviteRequestStatus>;

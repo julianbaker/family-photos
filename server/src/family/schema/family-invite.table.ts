@@ -12,6 +12,7 @@ import {
 import { UpdateIdColumn, UpdatedAtTrigger } from 'src/decorators.js';
 import { FamilyRole } from 'src/family/family.enum.js';
 import { FamilyTable } from 'src/family/schema/family.table.js';
+import { PersonGroupTable } from 'src/schema/tables/person-group.table.js';
 import { UserTable } from 'src/schema/tables/user.table.js';
 
 /** An invite link. Only a hash of its token is stored; the link itself is shown once, when created. */
@@ -51,6 +52,10 @@ export class FamilyInviteTable {
 
   @ForeignKeyColumn(() => UserTable, { onDelete: 'SET NULL', onUpdate: 'CASCADE', nullable: true })
   createdById!: string | null;
+
+  /** The family person this invite is for; whoever joins with it is linked to them ("this is me"). */
+  @ForeignKeyColumn(() => PersonGroupTable, { onDelete: 'SET NULL', onUpdate: 'CASCADE', nullable: true })
+  personId!: string | null;
 
   @CreateDateColumn()
   createdAt!: Generated<Timestamp>;

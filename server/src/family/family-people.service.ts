@@ -163,6 +163,47 @@ export class FamilyPeopleService extends BaseService {
   }
 
   /**
+  The person an invite (or a request for one) is for: in the family, not a pet, and not linked to an
+  account yet. Checked when the invite is asked for, made, approved and accepted.
+  */
+  async requireInvitablePerson(familyId: string, personId: string) {
+    const people = await this.familyRepository.getFamilyPeople(familyId);
+    const person = people.find((item) => item.personGroupId === personId);
+    if (!person) {
+      throw new BadRequestException('Person not found in the family');
+    }
+    if (person.kind === 'pet' || (person.kind === null && !!person.hasPetFaces)) {
+      throw new BadRequestException(`${person.name || 'This'} is a pet; only people can be invited`);
+    }
+    if (person.linkedUserId) {
+      throw new BadRequestException(`${person.name || 'This person'} is already linked to an account`);
+    }
+    return person;
+  }
+
+  /**
+  Links someone who just joined with an invite to the person the invite was for, as if they had said
+  "this is me". Only while nobody is linked to that person: if someone was linked in the meantime the
+  new member just joins unlinked. Returns whether the link was made.
+  */
+  async linkInvitedMember(membership: FamilyMembership, personId: string, userId: string): Promise<boolean> {
+    const linked = await this.familyRepository.linkUnlinkedFamilyPerson(membership.familyId, personId, userId);
+    if (!linked) {
+      return false;
+    }
+    await this.familyRepository.addHistory({
+      familyId: membership.familyId,
+      userId,
+      action: FamilyHistoryAction.PersonUpdate,
+      entityType: 'person',
+      entityId: personId,
+      before: { linkedUserId: null },
+      after: { linkedUserId: userId },
+    });
+    return true;
+  }
+
+  /**
   Called after the stock "update person" endpoint changed a name or birth date: makes that the family's
   value and copies it to every member, so edits from stock screens and the mobile app are shared too.
   */

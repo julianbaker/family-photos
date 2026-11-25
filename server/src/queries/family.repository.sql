@@ -192,6 +192,7 @@ offset
 -- FamilyRepository.getInvites
 select
   "family_invite".*,
+  "family_person"."name" as "personName",
   (
     select
       coalesce(json_agg(agg), '[]')
@@ -212,6 +213,7 @@ select
   ) as "usedBy"
 from
   "family_invite"
+  left join "family_person" on "family_person"."personGroupId" = "family_invite"."personId"
 where
   "family_invite"."familyId" = $1
 order by
@@ -221,10 +223,12 @@ order by
 select
   "family_invite".*,
   "family"."name" as "familyName",
-  "family"."clusterGroupId"
+  "family"."clusterGroupId",
+  "family_person"."name" as "personName"
 from
   "family_invite"
   inner join "family" on "family"."id" = "family_invite"."familyId"
+  left join "family_person" on "family_person"."personGroupId" = "family_invite"."personId"
 where
   "family_invite"."tokenHash" = $1
 
@@ -271,10 +275,12 @@ where
 -- FamilyRepository.getInviteRequests
 select
   "family_invite_request".*,
-  "user"."name" as "requestedByName"
+  "user"."name" as "requestedByName",
+  "family_person"."name" as "personName"
 from
   "family_invite_request"
   inner join "user" on "user"."id" = "family_invite_request"."requestedById"
+  left join "family_person" on "family_person"."personGroupId" = "family_invite_request"."personId"
 where
   "family_invite_request"."familyId" = $1
   and "family_invite_request"."requestedById" = $2
@@ -426,6 +432,18 @@ from
 where
   "familyId" = $1
   and "personGroupId" = $2
+
+-- FamilyRepository.linkUnlinkedFamilyPerson
+update "family_person"
+set
+  "linkedUserId" = $1,
+  "updatedById" = $2
+where
+  "familyId" = $3
+  and "personGroupId" = $4
+  and "linkedUserId" is null
+returning
+  *
 
 -- FamilyRepository.getFamilyThumbnailPath
 select

@@ -13,6 +13,7 @@ import {
   FamilyInviteResponseDto,
   FamilyInviteTokenDto,
 } from 'src/family/family-invite.dto.js';
+import { FamilyPeopleService } from 'src/family/family-people.service.js';
 import {
   FamilyHistoryAction,
   FamilyInviteRequestStatus,
@@ -31,6 +32,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const invitePath = (token: string) => `/invite/${token}`;
 
 type InviteRow = Selectable<FamilyInviteTable>;
+type PersonName = { personName?: string | null };
 
 export const getInviteStatus = (invite: InviteRow, now = new Date()): FamilyInviteStatus => {
   if (invite.revokedAt) {
@@ -50,8 +52,19 @@ export const getInviteStatus = (invite: InviteRow, now = new Date()): FamilyInvi
 export class FamilyInviteService extends BaseService {
   async create(auth: AuthDto, dto: FamilyInviteCreateDto): Promise<FamilyInviteResponseDto> {
     const membership = await this.requireFamilyAdmin(auth);
-    const { invite, token } = await this.createInvite(membership, auth.user.id, dto, dto.label ?? null);
-    return { ...this.mapInvite({ ...invite, usedBy: [] }), token, path: invitePath(token) };
+    const person = dto.personId ? await this.people().requireInvitablePerson(membership.familyId, dto.personId) : null;
+    const { invite, token } = await this.createInvite(
+      membership,
+      auth.user.id,
+      dto,
+      dto.label ?? null,
+      person?.personGroupId ?? null,
+    );
+    return {
+      ...this.mapInvite({ ...invite, personName: person?.name ?? null, usedBy: [] }),
+      token,
+      path: invitePath(token),
+    };
   }
 
   async getAll(auth: AuthDto): Promise<FamilyInviteResponseDto[]> {
@@ -91,6 +104,7 @@ export class FamilyInviteService extends BaseService {
       status,
       expiresAt: invite.expiresAt as unknown as Date,
       appUrl: process.env.IMMICH_FAMILY_APP_URL || null,
+      personName: invite.personId ? (invite.personName ?? null) : null,
     };
   }
 
@@ -152,6 +166,8 @@ export class FamilyInviteService extends BaseService {
       throw error;
     }
 
+    await this.linkInvitedPerson(invite, user.id);
+
     return this.createLoginResponse(user, loginDetails);
   }
 
@@ -161,11 +177,13 @@ export class FamilyInviteService extends BaseService {
       throw new ForbiddenException('Viewers cannot ask for invites');
     }
 
+    const person = dto.personId ? await this.people().requireInvitablePerson(membership.familyId, dto.personId) : null;
     const request = await this.familyRepository.createInviteRequest({
       familyId: membership.familyId,
       requestedById: auth.user.id,
       name: dto.name,
       note: dto.note || null,
+      personId: person?.personGroupId ?? null,
     });
     await this.familyRepository.addHistory({
       familyId: membership.familyId,
@@ -174,11 +192,11 @@ export class FamilyInviteService extends BaseService {
       entityType: 'invite-request',
       entityId: request.id,
       before: null,
-      after: { name: dto.name },
+      after: { name: dto.name, personId: request.personId },
     });
     await this.notifyAdmins(membership.familyId, auth.user.name, dto.name);
 
-    return this.mapRequest({ ...request, requestedByName: auth.user.name });
+    return this.mapRequest({ ...request, requestedByName: auth.user.name, personName: person?.name ?? null });
   }
 
   /** Admins see every request; other members see their own. */
@@ -201,8 +219,18 @@ export class FamilyInviteService extends BaseService {
       throw new BadRequestException('Request not found or already decided');
     }
 
+    // the person may have been linked to an account since the request was made
+    const person = request.personId
+      ? await this.people().requireInvitablePerson(membership.familyId, request.personId)
+      : null;
     const requester = await this.userRepository.get(request.requestedById, {});
-    const { invite, token } = await this.createInvite(membership, auth.user.id, dto, `For ${request.name}`);
+    const { invite, token } = await this.createInvite(
+      membership,
+      auth.user.id,
+      dto,
+      `For ${request.name}`,
+      request.personId,
+    );
     const decided = await this.familyRepository.decideInviteRequest(id, {
       status: FamilyInviteRequestStatus.Approved,
       decidedById: auth.user.id,
@@ -223,7 +251,7 @@ export class FamilyInviteService extends BaseService {
       after: { status: FamilyInviteRequestStatus.Approved, inviteId: invite.id },
     });
 
-    return this.mapRequest({ ...decided, requestedByName: requester?.name ?? '' });
+    return this.mapRequest({ ...decided, requestedByName: requester?.name ?? '', personName: person?.name ?? null });
   }
 
   async declineRequest(auth: AuthDto, id: string): Promise<void> {
@@ -255,6 +283,7 @@ export class FamilyInviteService extends BaseService {
     createdById: string,
     options: { role: FamilyRole; maxUses: number | null; expiresInDays: number },
     label: string | null,
+    personId: string | null = null,
   ) {
     const token = this.cryptoRepository.randomBytesAsText(24);
     const invite = await this.familyRepository.createInvite({
@@ -265,6 +294,7 @@ export class FamilyInviteService extends BaseService {
       maxUses: options.maxUses,
       expiresAt: new Date(Date.now() + options.expiresInDays * DAY_MS),
       createdById,
+      personId,
     });
     await this.familyRepository.addHistory({
       familyId: membership.familyId,
@@ -273,7 +303,7 @@ export class FamilyInviteService extends BaseService {
       entityType: 'invite',
       entityId: invite.id,
       before: null,
-      after: { role: options.role, maxUses: options.maxUses, expiresAt: invite.expiresAt, label },
+      after: { role: options.role, maxUses: options.maxUses, expiresAt: invite.expiresAt, label, personId },
     });
     return { invite, token };
   }
@@ -288,6 +318,34 @@ export class FamilyInviteService extends BaseService {
       throw new BadRequestException('Invite link not found');
     }
     return invite;
+  }
+
+  private people() {
+    return BaseService.create(FamilyPeopleService, this);
+  }
+
+  /**
+  After someone joins with an invite for a family person, links their new account to that person. The
+  sign-up has already happened, so a person who was linked or removed in the meantime (or any other
+  failure here) just leaves the new member unlinked; they can still say "this is me" later.
+  */
+  private async linkInvitedPerson(
+    invite: { familyId: string; clusterGroupId: string; role: FamilyRole; personId: string | null },
+    userId: string,
+  ) {
+    if (!invite.personId) {
+      return;
+    }
+    try {
+      await this.people().requireInvitablePerson(invite.familyId, invite.personId);
+      await this.people().linkInvitedMember(
+        { familyId: invite.familyId, clusterGroupId: invite.clusterGroupId, role: invite.role },
+        invite.personId,
+        userId,
+      );
+    } catch (error) {
+      this.logger.warn(`Could not link the new member to the invite's person: ${error}`);
+    }
   }
 
   private async notifyAdmins(familyId: string, requestedBy: string, name: string) {
@@ -329,7 +387,7 @@ export class FamilyInviteService extends BaseService {
   }
 
   private mapInvite(
-    invite: InviteRow & { usedBy: Array<{ userId: string; name: string; usedAt: unknown }> },
+    invite: InviteRow & PersonName & { usedBy: Array<{ userId: string; name: string; usedAt: unknown }> },
   ): FamilyInviteResponseDto {
     return {
       id: invite.id,
@@ -342,11 +400,13 @@ export class FamilyInviteService extends BaseService {
       createdAt: invite.createdAt as unknown as Date,
       status: getInviteStatus(invite),
       usedBy: invite.usedBy.map(({ userId, name, usedAt }) => ({ userId, name, usedAt: new Date(usedAt as string) })),
+      personId: invite.personId ?? null,
+      personName: invite.personId ? (invite.personName ?? null) : null,
     };
   }
 
   private mapRequest(
-    request: Selectable<FamilyInviteRequestTable> & { requestedByName: string },
+    request: Selectable<FamilyInviteRequestTable> & PersonName & { requestedByName: string },
   ): FamilyInviteRequestResponseDto {
     return {
       id: request.id,
@@ -355,6 +415,8 @@ export class FamilyInviteService extends BaseService {
       status: request.status,
       requestedById: request.requestedById,
       requestedByName: request.requestedByName,
+      personId: request.personId ?? null,
+      personName: request.personId ? (request.personName ?? null) : null,
       createdAt: request.createdAt as unknown as Date,
       decidedAt: request.decidedAt as unknown as Date | null,
       path: request.inviteToken ? invitePath(request.inviteToken) : null,

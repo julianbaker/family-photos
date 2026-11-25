@@ -300,7 +300,9 @@ export class FamilyRepository {
   getInvites(familyId: string) {
     return this.db
       .selectFrom('family_invite')
+      .leftJoin('family_person', 'family_person.personGroupId', 'family_invite.personId')
       .selectAll('family_invite')
+      .select('family_person.name as personName')
       .select((eb) =>
         jsonArrayFrom(
           eb
@@ -321,8 +323,9 @@ export class FamilyRepository {
     return this.db
       .selectFrom('family_invite')
       .innerJoin('family', 'family.id', 'family_invite.familyId')
+      .leftJoin('family_person', 'family_person.personGroupId', 'family_invite.personId')
       .selectAll('family_invite')
-      .select(['family.name as familyName', 'family.clusterGroupId'])
+      .select(['family.name as familyName', 'family.clusterGroupId', 'family_person.name as personName'])
       .where('family_invite.tokenHash', '=', tokenHash)
       .executeTakeFirst();
   }
@@ -404,8 +407,9 @@ export class FamilyRepository {
     return this.db
       .selectFrom('family_invite_request')
       .innerJoin('user', 'user.id', 'family_invite_request.requestedById')
+      .leftJoin('family_person', 'family_person.personGroupId', 'family_invite_request.personId')
       .selectAll('family_invite_request')
-      .select('user.name as requestedByName')
+      .select(['user.name as requestedByName', 'family_person.name as personName'])
       .where('family_invite_request.familyId', '=', familyId)
       .$if(!!options.requestedById, (qb) =>
         qb.where('family_invite_request.requestedById', '=', options.requestedById!),
@@ -567,6 +571,22 @@ export class FamilyRepository {
       .selectAll()
       .where('familyId', '=', familyId)
       .where('personGroupId', '=', personGroupId)
+      .executeTakeFirst();
+  }
+
+  /**
+  Links an account to a family person, but only while nobody is linked to them, so a link made in the
+  meantime is never overwritten. Returns nothing when the person is gone or already linked.
+  */
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID, DummyValue.UUID] })
+  linkUnlinkedFamilyPerson(familyId: string, personGroupId: string, userId: string) {
+    return this.db
+      .updateTable('family_person')
+      .set({ linkedUserId: userId, updatedById: userId })
+      .where('familyId', '=', familyId)
+      .where('personGroupId', '=', personGroupId)
+      .where('linkedUserId', 'is', null)
+      .returningAll()
       .executeTakeFirst();
   }
 

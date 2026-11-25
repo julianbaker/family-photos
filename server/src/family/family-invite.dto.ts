@@ -30,6 +30,10 @@ const FamilyInviteCreateSchema = z
   .object({
     ...inviteOptions,
     label: z.string().trim().max(100).optional().describe('Note for admins, e.g. who the link is for'),
+    personId: z
+      .uuidv4()
+      .optional()
+      .describe('Family person the invite is for; whoever joins with it is linked to them'),
   })
   .meta({ id: 'FamilyInviteCreateDto' });
 
@@ -47,6 +51,8 @@ const FamilyInviteResponseSchema = z
     usedBy: z
       .array(z.object({ userId: z.uuidv4(), name: z.string(), usedAt: isoDatetimeToDate }))
       .describe('Who joined with this link'),
+    personId: z.uuidv4().nullable().describe('Family person the invite is for'),
+    personName: z.string().nullable().describe("That person's name"),
     token: z.string().optional().describe('The link token; only returned when the link is created'),
     path: z.string().optional().describe('The link path, e.g. /invite/<token>; only returned when created'),
   })
@@ -64,6 +70,7 @@ const FamilyInvitePreviewSchema = z
     status: FamilyInviteStatusSchema,
     expiresAt: isoDatetimeToDate,
     appUrl: z.string().nullable().describe('Where to get the app, if configured'),
+    personName: z.string().nullable().describe('Who the invite is for, when it is for a family person'),
   })
   .meta({ id: 'FamilyInvitePreviewDto' });
 
@@ -83,6 +90,7 @@ const FamilyInviteRequestCreateSchema = z
   .object({
     name: z.string().trim().min(1).max(100).describe('Who should be invited'),
     note: z.string().trim().max(500).optional().describe('Anything the admin should know'),
+    personId: z.uuidv4().optional().describe('Family person to invite; the invite will be for them'),
   })
   .meta({ id: 'FamilyInviteRequestCreateDto' });
 
@@ -96,6 +104,8 @@ const FamilyInviteRequestResponseSchema = z
     status: FamilyInviteRequestStatusSchema,
     requestedById: z.uuidv4(),
     requestedByName: z.string(),
+    personId: z.uuidv4().nullable().describe('Family person to invite'),
+    personName: z.string().nullable().describe("That person's name"),
     createdAt: isoDatetimeToDate,
     decidedAt: isoDatetimeToDate.nullable(),
     path: z.string().nullable().describe('The approved link path, until it is used'),
