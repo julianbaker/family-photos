@@ -254,6 +254,20 @@ where
 returning
   *
 
+-- FamilyRepository.releaseInvite
+update "family_invite"
+set
+  "uses" = greatest ("uses" - $1, $2)
+where
+  "id" = $3
+
+-- FamilyRepository.clearRequestTokens
+update "family_invite_request"
+set
+  "inviteToken" = $1
+where
+  "inviteId" = $2
+
 -- FamilyRepository.getInviteRequests
 select
   "family_invite_request".*,

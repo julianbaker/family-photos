@@ -67,6 +67,8 @@ export class FamilyInviteService extends BaseService {
       throw new BadRequestException('Invite not found or already revoked');
     }
 
+    // the link no longer works, so the copy kept for the member who asked has no use either
+    await this.familyRepository.clearRequestTokens(id);
     await this.familyRepository.addHistory({
       familyId: membership.familyId,
       userId: auth.user.id,
@@ -109,32 +111,46 @@ export class FamilyInviteService extends BaseService {
       throw new BadRequestException('This invite link is no longer valid');
     }
 
-    const user = await this.createUser({
-      email: dto.email,
-      name: dto.name,
-      password: dto.password,
-      isAdmin: false,
-      shouldChangePassword: false,
-    });
+    // The account, the membership and the use are written by different repositories, so they can't share
+    // one transaction. If any step fails, undo the ones already done: give the use back and remove the
+    // half-joined account, so the person can try the same link again with the same email.
+    let userId: string | undefined;
+    let user;
+    try {
+      user = await this.createUser({
+        email: dto.email,
+        name: dto.name,
+        password: dto.password,
+        isAdmin: false,
+        shouldChangePassword: false,
+      });
+      userId = user.id;
 
-    const membership: FamilyMembership = {
-      familyId: invite.familyId,
-      clusterGroupId: invite.clusterGroupId,
-      role: invite.role,
-    };
-    await BaseService.create(FamilyService, this).addUserToFamily(membership, user.id, invite.role, {
-      userId: invite.createdById,
-    });
-    await this.familyRepository.addInviteUse(invite.id, user.id);
-    await this.familyRepository.addHistory({
-      familyId: invite.familyId,
-      userId: user.id,
-      action: FamilyHistoryAction.InviteAccept,
-      entityType: 'invite',
-      entityId: invite.id,
-      before: null,
-      after: { userId: user.id, role: invite.role },
-    });
+      const membership: FamilyMembership = {
+        familyId: invite.familyId,
+        clusterGroupId: invite.clusterGroupId,
+        role: invite.role,
+      };
+      await BaseService.create(FamilyService, this).addUserToFamily(membership, user.id, invite.role, {
+        userId: invite.createdById,
+      });
+      await this.familyRepository.addInviteUse(invite.id, user.id);
+      await this.familyRepository.addHistory({
+        familyId: invite.familyId,
+        userId: user.id,
+        action: FamilyHistoryAction.InviteAccept,
+        entityType: 'invite',
+        entityId: invite.id,
+        before: null,
+        after: { userId: user.id, role: invite.role },
+      });
+    } catch (error) {
+      await this.familyRepository.releaseInvite(invite.id);
+      if (userId) {
+        await this.userRepository.delete({ id: userId }, true);
+      }
+      throw error;
+    }
 
     return this.createLoginResponse(user, loginDetails);
   }

@@ -353,6 +353,26 @@ export class FamilyRepository {
       .executeTakeFirst();
   }
 
+  /** Gives back a use taken by `consumeInvite` when the sign-up it was taken for failed. */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  async releaseInvite(id: string): Promise<void> {
+    await this.db
+      .updateTable('family_invite')
+      .set((eb) => ({ uses: eb.fn('greatest', [eb('uses', '-', 1), eb.val(0)]) }))
+      .where('id', '=', id)
+      .execute();
+  }
+
+  /** Drops the copy of an invite link kept on its approved requests. */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  async clearRequestTokens(inviteId: string): Promise<void> {
+    await this.db
+      .updateTable('family_invite_request')
+      .set({ inviteToken: null })
+      .where('inviteId', '=', inviteId)
+      .execute();
+  }
+
   /** Records who joined through an invite; once a link is used up, its copy on a request is cleared. */
   async addInviteUse(inviteId: string, userId: string): Promise<void> {
     await this.db.insertInto('family_invite_use').values({ inviteId, userId }).execute();
