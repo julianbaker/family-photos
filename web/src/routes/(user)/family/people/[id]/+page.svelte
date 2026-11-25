@@ -125,6 +125,15 @@
     }
   };
 
+  const setHidden = async (isHidden: boolean) => {
+    try {
+      await updateFamilyPerson({ id: person.id, familyPersonUpdateDto: { isHidden } });
+      await invalidateAll();
+    } catch (error) {
+      handleError(error, isHidden ? 'Could not hide them' : 'Could not show them again');
+    }
+  };
+
   // quick add, like the tree: parent, partner, sibling, child
   let quickAdd = $state<RelativeKind | null>(null);
   const quickButtons: Array<{ kind: RelativeKind; label: string }> = [
@@ -323,6 +332,9 @@
         {:else if !person.linkedUserId && !linkedElsewhere}
           <Button variant="ghost" shape="round" onclick={() => setMe(true)}>This is me</Button>
         {/if}
+        <Button variant="ghost" shape="round" onclick={() => setHidden(!person.isHidden)}>
+          {person.isHidden ? 'Show in People' : 'Hide from People'}
+        </Button>
       {/if}
     </div>
 
