@@ -168,6 +168,49 @@ describe(FamilyGraph.name, () => {
     it('makes a step-parent’s child a step-sibling', () => {
       expect(label('me', 'stepSister')).toBe('stepsister');
     });
+
+    describe('across generations', () => {
+      // great-grandma Jess married Hugh (not my blood); Hugh's own daughter Hope; my son
+      const stepPeople: Array<[string, Gender]> = [
+        ['jess', 'female'],
+        ['hugh', 'male'],
+        ['hope', 'female'],
+        ['granny', 'female'],
+        ['mother', 'female'],
+        ['me', 'male'],
+        ['kid', 'male'],
+      ];
+      const steps = new FamilyGraph(
+        stepPeople.map(([id, gender]) => ({ id, gender })),
+        [
+          parent('jess', 'granny'),
+          parent('granny', 'mother'),
+          parent('mother', 'me'),
+          parent('me', 'kid'),
+          rel('jess', RelationType.Spouse, 'hugh'),
+          parent('hugh', 'hope'),
+        ],
+      );
+      const stepLabel = (from: string, to: string) => steps.relationship(from, to);
+
+      it('makes a grandparent’s spouse a step-grandparent, grouped with grandparents', () => {
+        expect(stepLabel('me', 'hugh')).toEqual({ key: 'great-grandparent', label: 'step-great-grandfather' });
+        expect(stepLabel('mother', 'hugh')).toEqual({ key: 'grandparent', label: 'step-grandfather' });
+        expect(stepLabel('granny', 'hugh')?.label).toBe('stepfather');
+      });
+
+      it('makes a spouse’s grandchildren step-grandchildren', () => {
+        expect(stepLabel('hugh', 'mother')).toEqual({ key: 'grandchild', label: 'step-granddaughter' });
+        expect(stepLabel('hugh', 'me')).toEqual({ key: 'great-grandchild', label: 'step-great-grandson' });
+      });
+
+      it('makes a step-grandparent’s own child a step-aunt, and the reverse a step-niece or nephew', () => {
+        expect(stepLabel('mother', 'hope')).toEqual({ key: 'aunt-uncle', label: 'step-aunt' });
+        expect(stepLabel('me', 'hope')).toEqual({ key: 'great-aunt-uncle', label: 'step-great-aunt' });
+        expect(stepLabel('hope', 'mother')).toEqual({ key: 'niece-nephew', label: 'step-niece' });
+        expect(stepLabel('granny', 'hope')?.label).toBe('stepsister');
+      });
+    });
   });
 
   describe('other relations', () => {

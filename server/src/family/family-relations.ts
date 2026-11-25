@@ -139,6 +139,10 @@ export const bloodRelationship = (up: number, down: number, gender: Gender): Rel
   };
 };
 
+/** How many generations up an ancestor key is: parent 1, grandparent 2, great-grandparent 3; else null. */
+const ancestorLevel = (key: string) =>
+  key === 'parent' ? 1 : key.endsWith('grandparent') ? 2 + key.split('great-').length - 1 : null;
+
 const IN_LAW_KEYS: Record<string, string> = {
   parent: 'parent-in-law',
   sibling: 'sibling-in-law',
@@ -437,6 +441,10 @@ export class FamilyGraph {
     for (const spouse of this.spousesOf(from)) {
       const blood = this.blood(spouse, to);
       if (blood && blood.key !== 'self') {
+        // my spouse's grandchildren are my step-grandchildren, not in-laws
+        if (blood.key.endsWith('grandchild')) {
+          return { key: blood.key, label: `step-${blood.label}` };
+        }
         // a partner's nieces and nephews are your nieces and nephews too, not "in-laws"
         if (blood.key.endsWith('niece-nephew')) {
           return blood;
@@ -462,7 +470,46 @@ export class FamilyGraph {
           const prefix = blood.key.slice(0, -'aunt-uncle'.length);
           return { key: blood.key, label: `${prefix}${word('aunt-uncle', this.gender(to))} by marriage` };
         }
+        // a grandparent's (or great-grandparent's) spouse is a step-grandparent, with the grandparents
+        if (blood.key.endsWith('grandparent')) {
+          const prefix = blood.key.slice(0, -'grandparent'.length);
+          return { key: blood.key, label: `step-${prefix}${word('grandparent', this.gender(to))}` };
+        }
         return { key: `${blood.key}-spouse`, label: `${blood.label}'s ${word('spouse', this.gender(to))}` };
+      }
+    }
+    // a step-grandparent's own child: a step-aunt or step-uncle (a step-parent's child is a step-sibling)
+    for (const parent of this.parents.get(to)?.keys() ?? []) {
+      const level = this.stepAncestorLevel(from, parent);
+      if (level !== null && level >= 2) {
+        const relation = bloodRelationship(level, 1, this.gender(to))!;
+        return { key: relation.key, label: `step-${relation.label}` };
+      }
+    }
+    // the other way: I'm a step-grandparent's child, so `to` is my step-niece or step-nephew
+    for (const parent of this.parents.get(from)?.keys() ?? []) {
+      const level = this.stepAncestorLevel(to, parent);
+      if (level !== null && level >= 2) {
+        const relation = bloodRelationship(1, level, this.gender(to))!;
+        return { key: relation.key, label: `step-${relation.label}` };
+      }
+    }
+    return null;
+  }
+
+  /**
+  How many generations up `person` is as `id`'s step-ancestor: the current spouse of a blood parent
+  (1), grandparent (2) and so on, who isn't a blood relative; null when they aren't one.
+  */
+  private stepAncestorLevel(id: string, person: string): number | null {
+    if (this.blood(id, person)) {
+      return null;
+    }
+    for (const spouse of this.spousesOf(person)) {
+      const blood = this.blood(id, spouse);
+      const level = blood ? ancestorLevel(blood.key) : null;
+      if (level !== null) {
+        return level;
       }
     }
     return null;
