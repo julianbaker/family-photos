@@ -217,7 +217,10 @@ export class FamilyRepository {
     `.execute(this.db);
   }
 
-  /** Assets owned by a member of `familyId`. */
+  /**
+  Photos owned by a member of `familyId` that the family shares: in the timeline or archive, not trashed.
+  A member's Locked and hidden photos are theirs alone, whoever asks for them by id.
+  */
   @GenerateSql({ params: [DummyValue.UUID, [DummyValue.UUID]] })
   async getFamilyAssetIds(familyId: string, assetIds: string[]): Promise<Set<string>> {
     if (assetIds.length === 0) {
@@ -230,6 +233,8 @@ export class FamilyRepository {
       .select('asset.id')
       .where('family_member.familyId', '=', familyId)
       .where('asset.id', '=', anyUuid(assetIds))
+      .where('asset.deletedAt', 'is', null)
+      .where('asset.visibility', 'in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)])
       .execute();
     return new Set(rows.map(({ id }) => id));
   }

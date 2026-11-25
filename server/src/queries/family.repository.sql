@@ -145,6 +145,8 @@ from
 where
   "family_member"."familyId" = $1
   and "asset"."id" = any ($2::uuid[])
+  and "asset"."deletedAt" is null
+  and "asset"."visibility" in ('timeline', 'archive')
 
 -- FamilyRepository.getFamilyByClusterGroup
 select
