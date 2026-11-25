@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { BulkIdErrorReason } from 'src/dtos/asset-ids.response.dto.js';
 import { PeopleUsersUpsertType, PersonUserRole, mapFaces, mapPerson } from 'src/dtos/person.dto.js';
 import { AssetFileType, CacheControl, JobName, JobStatus, SourceType, SystemMetadataKey } from 'src/enum.js';
@@ -238,6 +238,46 @@ describe(PersonService.name, () => {
           cacheControl: CacheControl.PrivateWithoutCache,
         }),
       );
+    });
+  });
+
+  describe('as a family viewer', () => {
+    beforeEach(() => {
+      mocks.access.family.isViewer.mockResolvedValue(true);
+    });
+
+    it('should not rename a person or change their birth date', async () => {
+      const auth = AuthFactory.create();
+      const person = PersonFactory.create({ ownerId: auth.user.id });
+      mocks.access.person.checkAccess.mockResolvedValue(
+        new Set([{ personGroupId: person.personGroupId, ownerId: auth.user.id }]),
+      );
+
+      await expect(sut.update(auth, person.personGroupId, { name: 'New' })).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(sut.update(auth, person.personGroupId, { birthDate: '2000-01-01' })).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(mocks.person.updateForWritableOwners).not.toHaveBeenCalled();
+      expect(mocks.person.update).not.toHaveBeenCalled();
+    });
+
+    it('should not create people or reassign faces', async () => {
+      const auth = AuthFactory.create();
+      await expect(sut.create(auth, { name: 'New' })).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(sut.reassignFaces(auth, newUuid(), { data: [] })).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(sut.reassignFacesById(auth, newUuid(), { id: newUuid() })).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(mocks.person.create).not.toHaveBeenCalled();
+    });
+
+    it('should not delete a face, even one on their own photo', async () => {
+      const auth = AuthFactory.create();
+      const faceId = newUuid();
+      mocks.access.person.checkFaceOwnerAccess.mockResolvedValue(new Set([faceId]));
+
+      await expect(sut.deleteFace(auth, faceId, { force: true })).rejects.toBeInstanceOf(ForbiddenException);
+      expect(mocks.person.deleteAssetFace).not.toHaveBeenCalled();
     });
   });
 

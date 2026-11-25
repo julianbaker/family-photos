@@ -50,6 +50,7 @@ import { FaceSearchTable } from 'src/schema/tables/face-search.table.js';
 import { PersonUserTable } from 'src/schema/tables/person-user.table.js';
 import { BaseService } from 'src/services/base.service.js';
 import type { JobItem, JobOf } from 'src/types.js';
+import { requireFamilyWriter } from 'src/utils/access.js';
 import { getDimensions, getMyPartnerIds } from 'src/utils/asset.util.js';
 import { ImmichFileResponse } from 'src/utils/file.js';
 import { isHttpException } from 'src/utils/logger.js';
@@ -88,6 +89,7 @@ export class PersonService extends BaseService {
   }
 
   async reassignFaces(auth: AuthDto, personGroupId: string, dto: AssetFaceUpdateDto): Promise<PersonResponseDto[]> {
+    await requireFamilyWriter(this.accessRepository, auth);
     const ids = dto.data.map((item) => ({ personGroupId: item.personId, ownerId: item.userId ?? auth.user.id }));
 
     await this.requirePersonAccess({
@@ -132,6 +134,7 @@ export class PersonService extends BaseService {
   }
 
   async reassignFacesById(auth: AuthDto, personGroupId: string, dto: FaceDto): Promise<PersonResponseDto> {
+    await requireFamilyWriter(this.accessRepository, auth);
     await this.requirePersonAccess({
       auth,
       permission: Permission.PersonUpdate,
@@ -230,6 +233,7 @@ export class PersonService extends BaseService {
   }
 
   async create(auth: AuthDto, dto: PersonCreateDto): Promise<PersonResponseDto> {
+    await requireFamilyWriter(this.accessRepository, auth);
     const group = await this.personRepository.createGroup(auth.user.id);
     const person = await this.personRepository.create({
       ownerId: auth.user.id,
@@ -252,6 +256,11 @@ export class PersonService extends BaseService {
 
     if (targetOwnerId !== auth.user.id && hasPersonalProperties) {
       throw new BadRequestException('Only name and birthDate can be updated for other users');
+    }
+
+    // family fork: names and birth dates are the family's, set only by members who can change things
+    if (hasSharedProperties) {
+      await requireFamilyWriter(this.accessRepository, auth);
     }
 
     await this.requirePersonAccess({

@@ -1,4 +1,4 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { AuthSharedLink } from 'src/database.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import { PersonUserRole } from 'src/dtos/person.dto.js';
@@ -29,9 +29,10 @@ export type AccessRequest = {
   permission: Permission;
   ids: Set<string> | string[];
   /**
-  Family fork: also grant `AssetUpdate` on other members' photos. Off unless a caller asks for it, so
-  stacks, tags, asset metadata, jobs and memories stay owner-only; only the metadata edits the family
-  intends (see familyBeforeAssetUpdate) and face identification opt in.
+  Family fork: also grant `AssetUpdate` (or, for `AssetDelete`, trashing) on other members' photos. Off
+  unless a caller asks for it, so stacks, tags, asset metadata, jobs, memories and the trash stay
+  owner-only; only the metadata edits the family intends (see familyBeforeAssetUpdate), face
+  identification and an admin's trashing opt in.
   */
   familyGrant?: boolean;
 };
@@ -52,11 +53,49 @@ export const requireUploadAccess = (auth: AuthDto | null): AuthDto => {
   return auth;
 };
 
+/**
+Family fork: Viewers see and download everything and change nothing. These are refused before any stock
+owner grant, so a photo a Viewer owns (uploaded before being demoted, or added as a Viewer) is not
+writable either. Adding photos to albums (`AssetShare`, `AlbumAssetCreate`) is deliberately not here.
+*/
+const VIEWER_BLOCKED_PERMISSIONS = new Set<Permission>([
+  Permission.ActivityCreate,
+  Permission.ActivityUpdate,
+  Permission.ActivityDelete,
+  Permission.AssetUpdate,
+  Permission.AssetDelete,
+  Permission.AssetUpload,
+  Permission.AssetCopy,
+  Permission.AssetDerive,
+  Permission.AssetEditCreate,
+  Permission.AssetEditDelete,
+  Permission.AssetFileDelete,
+  Permission.FaceDelete,
+  Permission.PersonCreate,
+  Permission.PersonReassign,
+  Permission.PersonDelete,
+  Permission.PersonMerge,
+  Permission.StackCreate,
+  Permission.StackUpdate,
+  Permission.StackDelete,
+  Permission.TagAsset,
+]);
+
+export const requireFamilyWriter = async (access: AccessRepository, auth: AuthDto) => {
+  if (!auth.sharedLink && (await access.family.isViewer(auth.user.id))) {
+    throw new ForbiddenException('Viewers can look but not change anything');
+  }
+};
+
 export const requireAccess = async (access: AccessRepository, request: AccessRequest) => {
   const allowedIds = await checkAccess(access, request);
-  if (!areSetsEqual(new Set(request.ids), allowedIds)) {
-    throw new BadRequestException(`Not found or no ${request.permission} access`);
+  if (areSetsEqual(new Set(request.ids), allowedIds)) {
+    return;
   }
+  if (VIEWER_BLOCKED_PERMISSIONS.has(request.permission)) {
+    await requireFamilyWriter(access, request.auth);
+  }
+  throw new BadRequestException(`Not found or no ${request.permission} access`);
 };
 
 const PERSON_READ_ROLES = [PersonUserRole.Read, PersonUserRole.Write, PersonUserRole.Admin];
@@ -79,6 +118,11 @@ export const checkPersonAccess = async (
 ): Promise<Set<PersonId>> => {
   const idSet = Array.isArray(ids) ? new Set(ids) : ids;
   if (idSet.size === 0) {
+    return new Set<PersonId>();
+  }
+
+  // family fork: Viewers change nothing
+  if (VIEWER_BLOCKED_PERMISSIONS.has(permission) && (await access.family.isViewer(auth.user.id))) {
     return new Set<PersonId>();
   }
 
@@ -108,6 +152,11 @@ export const checkAccess = async (
 ): Promise<Set<string>> => {
   const idSet = Array.isArray(ids) ? new Set(ids) : ids;
   if (idSet.size === 0) {
+    return new Set<string>();
+  }
+
+  // family fork: a Viewer's writes are refused before any stock owner grant
+  if (!auth.sharedLink && VIEWER_BLOCKED_PERMISSIONS.has(permission) && (await access.family.isViewer(auth.user.id))) {
     return new Set<string>();
   }
 
@@ -181,7 +230,10 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
         auth.user.id,
         ids.difference(isOwner).difference(isAlbum),
       );
-      return isOwner.union(isAlbum).union(isPartner);
+      // family fork: the family's photos (timeline and archive, live) are readable by every member
+      return withFamilyAccess(isOwner.union(isAlbum).union(isPartner), ids, (rest) =>
+        access.family.checkAssetReadAccess(auth.user.id, rest),
+      );
     }
 
     case Permission.AssetShare: {
@@ -206,7 +258,10 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
         auth.user.id,
         ids.difference(isOwner).difference(isAlbum),
       );
-      return isOwner.union(isAlbum).union(isPartner);
+      // family fork: the family's photos (timeline and archive, live) are readable by every member
+      return withFamilyAccess(isOwner.union(isAlbum).union(isPartner), ids, (rest) =>
+        access.family.checkAssetReadAccess(auth.user.id, rest),
+      );
     }
 
     case Permission.AssetDownload: {
@@ -216,7 +271,10 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
         auth.user.id,
         ids.difference(isOwner).difference(isAlbum),
       );
-      return isOwner.union(isAlbum).union(isPartner);
+      // family fork: the family's photos (timeline and archive, live) are readable by every member
+      return withFamilyAccess(isOwner.union(isAlbum).union(isPartner), ids, (rest) =>
+        access.family.checkAssetReadAccess(auth.user.id, rest),
+      );
     }
 
     case Permission.AssetUpdate: {
@@ -227,11 +285,12 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.AssetDelete: {
-      return withFamilyAccess(
-        await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission),
-        ids,
-        (rest) => access.family.checkAssetDeleteAccess(auth.user.id, rest),
-      );
+      // family fork: an admin may trash another member's photo (into the owner's trash), only where the
+      // caller sets `familyGrant`; restoring from the trash, duplicates and the rest stay owner-only
+      const owned = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      return familyGrant
+        ? withFamilyAccess(owned, ids, (rest) => access.family.checkAssetTrashAccess(auth.user.id, rest))
+        : owned;
     }
 
     case Permission.AssetCopy: {
@@ -239,27 +298,18 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.AssetEditGet: {
+      // family fork: the edits of a photo are part of seeing it, so every member may read them
       return withFamilyAccess(
         await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission),
         ids,
-        (rest) => access.family.checkAssetEditAccess(auth.user.id, rest),
+        (rest) => access.family.checkAssetReadAccess(auth.user.id, rest),
       );
     }
 
-    case Permission.AssetEditCreate: {
-      return withFamilyAccess(
-        await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission),
-        ids,
-        (rest) => access.family.checkAssetEditAccess(auth.user.id, rest),
-      );
-    }
-
+    // family fork: crop and rotate replace or erase the owner's edits; they stay with the owner
+    case Permission.AssetEditCreate:
     case Permission.AssetEditDelete: {
-      return withFamilyAccess(
-        await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission),
-        ids,
-        (rest) => access.family.checkAssetEditAccess(auth.user.id, rest),
-      );
+      return await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
     }
 
     case Permission.AssetFileRead:

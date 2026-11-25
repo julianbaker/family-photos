@@ -205,6 +205,75 @@ describe(AlbumService.name, () => {
     expect(mocks.album.getAll).toHaveBeenCalledTimes(1);
   });
 
+  describe('family viewers', () => {
+    beforeEach(() => {
+      process.env.IMMICH_FAMILY_ENABLED = 'true';
+    });
+    afterEach(() => {
+      delete process.env.IMMICH_FAMILY_ENABLED;
+    });
+
+    it('should make a viewer a viewer when creating an album with them as editor', async () => {
+      const viewerId = newUuid();
+      const album = AlbumFactory.from({ albumName: 'test' }).build();
+      const { user: owner } = album.albumUsers.find(({ role }) => role === AlbumUserRole.Owner)!;
+      mocks.album.create.mockResolvedValue(getForAlbum(album));
+      mocks.user.get.mockResolvedValue(UserFactory.create({ id: viewerId }));
+      mocks.user.getMetadata.mockResolvedValue([]);
+      mocks.family.getViewersInOwnerFamily.mockResolvedValue(new Set([viewerId]));
+
+      await sut.create(AuthFactory.create(owner), {
+        albumName: 'test',
+        albumUsers: [{ userId: viewerId, role: AlbumUserRole.Editor }],
+      });
+
+      expect(mocks.family.getViewersInOwnerFamily).toHaveBeenCalledWith(owner.id, [viewerId]);
+      expect(mocks.album.create).toHaveBeenCalledWith(
+        expect.anything(),
+        [],
+        [
+          { userId: owner.id, role: AlbumUserRole.Owner },
+          { userId: viewerId, role: AlbumUserRole.Viewer },
+        ],
+        owner.id,
+      );
+    });
+
+    it('should keep a viewer a viewer when an owner promotes them', async () => {
+      const viewerId = newUuid();
+      const album = AlbumFactory.from().albumUser({ userId: viewerId, role: AlbumUserRole.Viewer }).build();
+      const { user: owner } = album.albumUsers.find(({ role }) => role === AlbumUserRole.Owner)!;
+      mocks.access.album.checkOwnerAccess.mockResolvedValue(new Set([album.id]));
+      mocks.album.getById.mockResolvedValue(getForAlbum(album));
+      mocks.family.getViewersInOwnerFamily.mockResolvedValue(new Set([viewerId]));
+      mocks.albumUser.update.mockResolvedValue(void 0 as never);
+
+      await sut.updateUser(AuthFactory.create(owner), album.id, viewerId, { role: AlbumUserRole.Editor });
+
+      expect(mocks.albumUser.update).toHaveBeenCalledWith(
+        { albumId: album.id, userId: viewerId },
+        { role: AlbumUserRole.Viewer },
+      );
+    });
+
+    it('should leave roles alone for everyone else', async () => {
+      const memberId = newUuid();
+      const album = AlbumFactory.from().albumUser({ userId: memberId, role: AlbumUserRole.Viewer }).build();
+      const { user: owner } = album.albumUsers.find(({ role }) => role === AlbumUserRole.Owner)!;
+      mocks.access.album.checkOwnerAccess.mockResolvedValue(new Set([album.id]));
+      mocks.album.getById.mockResolvedValue(getForAlbum(album));
+      mocks.family.getViewersInOwnerFamily.mockResolvedValue(new Set());
+      mocks.albumUser.update.mockResolvedValue(void 0 as never);
+
+      await sut.updateUser(AuthFactory.create(owner), album.id, memberId, { role: AlbumUserRole.Editor });
+
+      expect(mocks.albumUser.update).toHaveBeenCalledWith(
+        { albumId: album.id, userId: memberId },
+        { role: AlbumUserRole.Editor },
+      );
+    });
+  });
+
   describe('create', () => {
     it('creates album', async () => {
       const assetId = newUuid();

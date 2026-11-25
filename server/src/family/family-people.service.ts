@@ -30,8 +30,8 @@ import {
 } from 'src/family/family-relations.js';
 import { FamilyHistoryAction, FamilyRole } from 'src/family/family.enum.js';
 import { isFamilyEnabled } from 'src/family/family.flag.js';
-import { ageOnPartial, endOfPeriod, isPartialDate, stockBirthDateChange } from 'src/family/partial-date.js';
 import { FamilyMembership } from 'src/family/family.repository.js';
+import { ageOnPartial, endOfPeriod, isPartialDate, stockBirthDateChange } from 'src/family/partial-date.js';
 import { FamilyPersonTable } from 'src/family/schema/family-person.table.js';
 import { FamilyRelationTable } from 'src/family/schema/family-relation.table.js';
 import type { ArgOf } from 'src/repositories/event.repository.js';
@@ -379,10 +379,19 @@ export class FamilyPeopleService extends BaseService {
   was locked or trashed, its face was moved to someone else, or its owner left the family.
   */
   async repairCovers(familyId: string, personGroupId?: string) {
+    // first forget covers (and their cached crops) that are no longer on a photo the family shares, even
+    // where no replacement exists: a stale crop would otherwise still be served
+    const stale = await this.familyRepository.clearPrivateCovers(familyId, personGroupId);
+    if (stale.length > 0) {
+      await this.jobRepository.queue({ name: JobName.FileDelete, data: { files: stale } });
+    }
     const missing = await this.familyRepository.getPeopleWithoutCover(familyId, personGroupId);
     for (const { ownerId, personGroupId: groupId, faceId } of missing) {
       await this.familyRepository.setPersonCover(ownerId, groupId, faceId);
-      await this.jobRepository.queue({ name: JobName.PersonGenerateThumbnail, data: { ownerId, personGroupId: groupId } });
+      await this.jobRepository.queue({
+        name: JobName.PersonGenerateThumbnail,
+        data: { ownerId, personGroupId: groupId },
+      });
     }
     if (missing.length > 0) {
       this.logger.log(`Gave ${missing.length} family people records a cover face`);
@@ -559,7 +568,12 @@ export class FamilyPeopleService extends BaseService {
     const toWrite: Array<{ personId: string; relatedPersonId: string; type: RelationType }> = [];
     for (const relation of planned) {
       let { personId, relatedPersonId } = relation;
-      if (isUndirected(relation.type) && personId !== 'NEW' && relatedPersonId !== 'NEW' && personId > relatedPersonId) {
+      if (
+        isUndirected(relation.type) &&
+        personId !== 'NEW' &&
+        relatedPersonId !== 'NEW' &&
+        personId > relatedPersonId
+      ) {
         [personId, relatedPersonId] = [relatedPersonId, personId];
       }
       const candidate = { personId, relatedPersonId, type: relation.type, qualifier: null, label: null };
@@ -567,7 +581,12 @@ export class FamilyPeopleService extends BaseService {
       if (error) {
         throw new BadRequestException(error);
       }
-      if (accepted.some((item) => item.personId === personId && item.relatedPersonId === relatedPersonId && item.type === relation.type)) {
+      if (
+        accepted.some(
+          (item) =>
+            item.personId === personId && item.relatedPersonId === relatedPersonId && item.type === relation.type,
+        )
+      ) {
         throw new BadRequestException('That relation is already recorded');
       }
       accepted.push({ id: `planned-${accepted.length}`, ...candidate });
@@ -661,7 +680,9 @@ export class FamilyPeopleService extends BaseService {
       userName: comment.userName,
       text: comment.text,
       createdAt: comment.createdAt as unknown as Date,
-      canDelete: comment.userId === auth.user.id || membership.role === FamilyRole.Admin,
+      canDelete:
+        CONTRIBUTOR_ROLES.includes(membership.role) &&
+        (comment.userId === auth.user.id || membership.role === FamilyRole.Admin),
     }));
   }
 
@@ -686,7 +707,8 @@ export class FamilyPeopleService extends BaseService {
   }
 
   async deleteComment(auth: AuthDto, id: string): Promise<void> {
-    const membership = await requireFamilyRole(this.familyRepository, auth);
+    // a Viewer changes nothing, not even their own comment from before they were demoted
+    const membership = await requireFamilyRole(this.familyRepository, auth, CONTRIBUTOR_ROLES);
     const comment = await this.familyRepository.getComment(id, membership.familyId);
     if (!comment) {
       throw new BadRequestException('Comment not found');
@@ -722,6 +744,30 @@ export class FamilyPeopleService extends BaseService {
     if (family) {
       await this.reconcile(family.id);
     }
+  }
+
+  /**
+  Photos left the family's view (trashed or deleted, or moved to the Locked folder or hidden): any
+  person whose picture was cut from one of them loses it, and gets another photo's face if there is one.
+  */
+  async onAssetsLeftFamilyView(userId: string) {
+    if (!isFamilyEnabled()) {
+      return;
+    }
+    const membership = await this.familyRepository.getMembership(userId);
+    if (membership) {
+      await this.repairCovers(membership.familyId);
+    }
+  }
+
+  @OnEvent({ name: 'AssetTrashAll' })
+  async onAssetTrashAll({ userId }: ArgOf<'AssetTrashAll'>) {
+    await this.onAssetsLeftFamilyView(userId);
+  }
+
+  @OnEvent({ name: 'AssetDeleteAll' })
+  async onAssetDeleteAll({ userId }: ArgOf<'AssetDeleteAll'>) {
+    await this.onAssetsLeftFamilyView(userId);
   }
 
   /** Face recognition creates new people; share them with the family shortly after, once per burst. */

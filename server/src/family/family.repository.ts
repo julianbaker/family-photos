@@ -4,6 +4,7 @@ import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { InjectKysely } from 'nestjs-kysely';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
 import { AlbumUserRole, AssetFileType, AssetVisibility, SourceType } from 'src/enum.js';
+import { FAMILY_VISIBILITIES } from 'src/family/family-access.js';
 import { FamilyInviteRequestStatus, FamilyRole } from 'src/family/family.enum.js';
 import { FamilyAppLoginCodeTable } from 'src/family/schema/family-app-login-code.table.js';
 import { FamilyCommentTable } from 'src/family/schema/family-comment.table.js';
@@ -175,7 +176,8 @@ export class FamilyRepository {
   /**
   Every member is an album user on every album owned by another member: Editor for admins and
   members, Viewer for viewers. Album ownership is the `album_user` row with role `owner`. Existing
-  rows keep their role unless `refreshRoles` is set; owner rows are never touched.
+  rows keep their role unless `refreshRoles` is set, except that a Viewer is always cut back to Viewer;
+  owner rows are never touched.
   */
   @GenerateSql({ params: [DummyValue.UUID] })
   async ensureAlbumUsers(familyId: string, options: { albumId?: string; refreshRoles?: boolean } = {}) {
@@ -190,12 +192,33 @@ export class FamilyRepository {
       join "family_member" m on m."familyId" = ${familyId} and m."userId" != owner_row."userId"
       where album."deletedAt" is null
       ${albumId ? sql`and album."id" = ${albumId}` : sql``}
-      on conflict ("albumId", "userId") do ${
-        refreshRoles
-          ? sql`update set "role" = excluded."role" where "album_user"."role" != excluded."role" and "album_user"."role" != ${AlbumUserRole.Owner}`
-          : sql`nothing`
-      }
+      on conflict ("albumId", "userId") do update set "role" = excluded."role"
+        where "album_user"."role" != ${AlbumUserRole.Owner}
+          and ${
+            refreshRoles
+              ? sql`"album_user"."role" != excluded."role"`
+              : // viewers are viewers in albums, whatever an owner or an earlier role gave them
+                sql`excluded."role" = ${AlbumUserRole.Viewer} and "album_user"."role" != ${AlbumUserRole.Viewer}`
+          }
     `.execute(this.db);
+  }
+
+  /** The users among `userIds` who are Viewers in the same family as `ownerId` (their album roles are capped). */
+  @GenerateSql({ params: [DummyValue.UUID, [DummyValue.UUID]] })
+  async getViewersInOwnerFamily(ownerId: string, userIds: string[]): Promise<Set<string>> {
+    if (userIds.length === 0) {
+      return new Set();
+    }
+
+    const rows = await this.db
+      .selectFrom('family_member as owner')
+      .innerJoin('family_member as member', 'member.familyId', 'owner.familyId')
+      .select('member.userId')
+      .where('owner.userId', '=', ownerId)
+      .where('member.role', '=', FamilyRole.Viewer)
+      .where('member.userId', '=', anyUuid(userIds))
+      .execute();
+    return new Set(rows.map(({ userId }) => userId));
   }
 
   /** Removes a leaving member from albums owned by the rest of the family, and the family from theirs. */
@@ -546,54 +569,56 @@ export class FamilyRepository {
 
   @GenerateSql({ params: [DummyValue.UUID] })
   getFamilyPeople(familyId: string) {
-    return this.db
-      .selectFrom('family_person')
-      .selectAll('family_person')
-      .select((eb) =>
-        eb
-          .selectFrom('asset_face')
-          .select((eb) => eb.fn.countAll<number>().as('count'))
-          .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
-          .where('asset_face.deletedAt', 'is', null)
-          .where('asset_face.isVisible', '=', true)
-          .as('faceCount'),
-      )
-      // a pet when its faces were all found by pet recognition: one stray pet box assigned to a person
-      // by hand doesn't turn them into a pet
-      .select((eb) =>
-        eb
-          .and([
-            eb.exists(
-              eb
-                .selectFrom('asset_face')
-                .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
-                .where('asset_face.sourceType', '=', sql.lit(SourceType.Pet))
-                .where('asset_face.deletedAt', 'is', null),
-            ),
-            eb.not(
+    return (
+      this.db
+        .selectFrom('family_person')
+        .selectAll('family_person')
+        .select((eb) =>
+          eb
+            .selectFrom('asset_face')
+            .select((eb) => eb.fn.countAll<number>().as('count'))
+            .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
+            .where('asset_face.deletedAt', 'is', null)
+            .where('asset_face.isVisible', '=', true)
+            .as('faceCount'),
+        )
+        // a pet when its faces were all found by pet recognition: one stray pet box assigned to a person
+        // by hand doesn't turn them into a pet
+        .select((eb) =>
+          eb
+            .and([
               eb.exists(
                 eb
                   .selectFrom('asset_face')
                   .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
-                  .where('asset_face.sourceType', '!=', sql.lit(SourceType.Pet))
+                  .where('asset_face.sourceType', '=', sql.lit(SourceType.Pet))
                   .where('asset_face.deletedAt', 'is', null),
               ),
-            ),
-          ])
-          .as('hasPetFaces'),
-      )
-      // when anyone's copy last changed (its picture is rewritten by the thumbnail job): apps use it
-      // to know a cached picture is out of date
-      .select((eb) =>
-        eb
-          .selectFrom('person')
-          .select((eb) => eb.fn.max('person.updatedAt').as('pictureAt'))
-          .whereRef('person.personGroupId', '=', 'family_person.personGroupId')
-          .as('pictureAt'),
-      )
-      .where('family_person.familyId', '=', familyId)
-      .orderBy('family_person.name', 'asc')
-      .execute();
+              eb.not(
+                eb.exists(
+                  eb
+                    .selectFrom('asset_face')
+                    .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
+                    .where('asset_face.sourceType', '!=', sql.lit(SourceType.Pet))
+                    .where('asset_face.deletedAt', 'is', null),
+                ),
+              ),
+            ])
+            .as('hasPetFaces'),
+        )
+        // when anyone's copy last changed (its picture is rewritten by the thumbnail job): apps use it
+        // to know a cached picture is out of date
+        .select((eb) =>
+          eb
+            .selectFrom('person')
+            .select((eb) => eb.fn.max('person.updatedAt').as('pictureAt'))
+            .whereRef('person.personGroupId', '=', 'family_person.personGroupId')
+            .as('pictureAt'),
+        )
+        .where('family_person.familyId', '=', familyId)
+        .orderBy('family_person.name', 'asc')
+        .execute()
+    );
   }
 
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
@@ -767,6 +792,8 @@ export class FamilyRepository {
       .where('family_person.familyId', '=', familyId)
       .where('person.personGroupId', '=', personGroupId)
       .where('person.thumbnailPath', '!=', '')
+      // a crop is the family's to see only while the face it was cut from is on a photo the family shares
+      .where(() => this.shareableFace(familyId, sql.ref('person.faceAssetId'), sql.ref('person.personGroupId')))
       .limit(1)
       .executeTakeFirst();
     return row?.thumbnailPath;
@@ -893,55 +920,91 @@ export class FamilyRepository {
   }
 
   /**
+  Forgets the cover (and its cached crop) of every family person's record whose cover face is no longer on a
+  photo the family shares: the photo was locked, trashed or deleted, or the face was removed or moved. Without
+  this the crop stays on disk and in the record, and is served to members even when there is no other face to
+  replace it. Returns the crop files that are no longer wanted.
+  */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  async clearPrivateCovers(familyId: string, personGroupId?: string): Promise<string[]> {
+    const { rows } = await sql<{ thumbnailPath: string }>`
+      with stale as (
+        select p."ownerId", p."personGroupId", p."thumbnailPath"
+        from "person" p
+        join "family_member" pm on pm."userId" = p."ownerId" and pm."familyId" = ${familyId}
+        join "family_person" fp on fp."personGroupId" = p."personGroupId" and fp."familyId" = ${familyId}
+        where (p."faceAssetId" is not null or p."thumbnailPath" != '')
+          ${personGroupId ? sql`and p."personGroupId" = ${personGroupId}` : sql``}
+          and not ${this.shareableFace(familyId, sql.ref('p.faceAssetId'), sql.ref('p.personGroupId'))}
+      ), cleared as (
+        update "person" set "faceAssetId" = null, "thumbnailPath" = ''
+        from stale
+        where "person"."ownerId" = stale."ownerId" and "person"."personGroupId" = stale."personGroupId"
+        returning 1
+      )
+      select "thumbnailPath" from stale where "thumbnailPath" != ''
+    `.execute(this.db);
+    return rows.map(({ thumbnailPath }) => thumbnailPath);
+  }
+
+  /**
   Members' records of people who have no picture anyone may see: nobody's cover is a shareable face
   (a merge kept a photo-less duplicate, a cover's photo was locked or trashed, its face was moved to
   someone else, or its owner left the family). Each comes with the face to use: the largest shareable one.
   */
   @GenerateSql({ params: [DummyValue.UUID] })
   getPeopleWithoutCover(familyId: string, personGroupId?: string) {
-    return this.db
-      .selectFrom('person')
-      .innerJoin('family_person', 'family_person.personGroupId', 'person.personGroupId')
-      .innerJoinLateral(
-        (eb) =>
-          eb
-            .selectFrom('asset_face')
-            .innerJoin('asset', 'asset.id', 'asset_face.assetId')
-            .innerJoin('family_member', (join) =>
-              join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
-            )
-            .select('asset_face.id as faceId')
-            .whereRef('asset_face.personGroupId', '=', 'person.personGroupId')
-            .where('asset_face.deletedAt', 'is', null)
-            .where('asset_face.isVisible', '=', true)
-            .where('asset.deletedAt', 'is', null)
-            .where('asset.visibility', 'in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)])
-            .orderBy(
-              sql`("asset_face"."boundingBoxX2" - "asset_face"."boundingBoxX1") * ("asset_face"."boundingBoxY2" - "asset_face"."boundingBoxY1")`,
-              'desc',
-            )
-            .orderBy('asset_face.id')
-            .limit(1)
-            .as('cover'),
-        (join) => join.onTrue(),
-      )
-      .select(['person.ownerId', 'person.personGroupId', 'cover.faceId'])
-      .where('family_person.familyId', '=', familyId)
-      .$if(!!personGroupId, (qb) => qb.where('person.personGroupId', '=', personGroupId!))
-      // members' copies without a cover borrow anyone's picture (by design): only a group where no
-      // copy has a shareable cover needs one
-      .where((eb) =>
-        eb.not(
-          eb.exists(
+    return (
+      this.db
+        .selectFrom('person')
+        .innerJoin('family_person', 'family_person.personGroupId', 'person.personGroupId')
+        .innerJoinLateral(
+          (eb) =>
             eb
-              .selectFrom('person as covered')
-              .whereRef('covered.personGroupId', '=', 'person.personGroupId')
-              .where('covered.faceAssetId', 'is not', null)
-              .where(() => this.shareableFace(familyId, sql.ref('covered.faceAssetId'), sql.ref('covered.personGroupId'))),
+              .selectFrom('asset_face')
+              .innerJoin('asset', 'asset.id', 'asset_face.assetId')
+              .innerJoin('family_member', (join) =>
+                join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
+              )
+              .select('asset_face.id as faceId')
+              .whereRef('asset_face.personGroupId', '=', 'person.personGroupId')
+              .where('asset_face.deletedAt', 'is', null)
+              .where('asset_face.isVisible', '=', true)
+              .where('asset.deletedAt', 'is', null)
+              .where(
+                'asset.visibility',
+                'in',
+                FAMILY_VISIBILITIES.map((visibility) => sql.lit(visibility)),
+              )
+              .orderBy(
+                sql`("asset_face"."boundingBoxX2" - "asset_face"."boundingBoxX1") * ("asset_face"."boundingBoxY2" - "asset_face"."boundingBoxY1")`,
+                'desc',
+              )
+              .orderBy('asset_face.id')
+              .limit(1)
+              .as('cover'),
+          (join) => join.onTrue(),
+        )
+        .select(['person.ownerId', 'person.personGroupId', 'cover.faceId'])
+        .where('family_person.familyId', '=', familyId)
+        .$if(!!personGroupId, (qb) => qb.where('person.personGroupId', '=', personGroupId!))
+        // members' copies without a cover borrow anyone's picture (by design): only a group where no
+        // copy has a shareable cover needs one
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectFrom('person as covered')
+                .whereRef('covered.personGroupId', '=', 'person.personGroupId')
+                .where('covered.faceAssetId', 'is not', null)
+                .where(() =>
+                  this.shareableFace(familyId, sql.ref('covered.faceAssetId'), sql.ref('covered.personGroupId')),
+                ),
+            ),
           ),
-        ),
-      )
-      .execute();
+        )
+        .execute()
+    );
   }
 
   /** The person's clearest shareable face in a photo, if they're in it and the family may see it. */
@@ -989,41 +1052,43 @@ export class FamilyRepository {
   */
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.STRING, 10] })
   getAssetsForPetScan(familyId: string, modelVersion: string, limit: number) {
-    return this.db
-      .selectFrom('asset')
-      .innerJoin('family_member', (join) =>
-        join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
-      )
-      // the same preview face detection uses (an edited one first), so boxes and thumbnails line up
-      .innerJoinLateral(
-        (eb) =>
-          eb
-            .selectFrom('asset_file')
-            .select('asset_file.path')
-            .whereRef('asset_file.assetId', '=', 'asset.id')
-            .where('asset_file.type', '=', sql.lit(AssetFileType.Preview))
-            .orderBy('asset_file.isEdited', 'desc')
-            .limit(1)
-            .as('preview'),
-        (join) => join.onTrue(),
-      )
-      .select(['asset.id', 'asset.ownerId', 'preview.path as previewPath'])
-      .where('asset.deletedAt', 'is', null)
-      // never a member's Locked folder (private) or the hidden half of a live photo
-      .where('asset.visibility', 'in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)])
-      .where((eb) =>
-        eb.not(
-          eb.exists(
+    return (
+      this.db
+        .selectFrom('asset')
+        .innerJoin('family_member', (join) =>
+          join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
+        )
+        // the same preview face detection uses (an edited one first), so boxes and thumbnails line up
+        .innerJoinLateral(
+          (eb) =>
             eb
-              .selectFrom('family_pet_scan')
-              .whereRef('family_pet_scan.assetId', '=', 'asset.id')
-              .where('family_pet_scan.modelVersion', '=', modelVersion),
+              .selectFrom('asset_file')
+              .select('asset_file.path')
+              .whereRef('asset_file.assetId', '=', 'asset.id')
+              .where('asset_file.type', '=', sql.lit(AssetFileType.Preview))
+              .orderBy('asset_file.isEdited', 'desc')
+              .limit(1)
+              .as('preview'),
+          (join) => join.onTrue(),
+        )
+        .select(['asset.id', 'asset.ownerId', 'preview.path as previewPath'])
+        .where('asset.deletedAt', 'is', null)
+        // never a member's Locked folder (private) or the hidden half of a live photo
+        .where('asset.visibility', 'in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)])
+        .where((eb) =>
+          eb.not(
+            eb.exists(
+              eb
+                .selectFrom('family_pet_scan')
+                .whereRef('family_pet_scan.assetId', '=', 'asset.id')
+                .where('family_pet_scan.modelVersion', '=', modelVersion),
+            ),
           ),
-        ),
-      )
-      .orderBy('asset.createdAt', 'asc')
-      .limit(limit)
-      .execute();
+        )
+        .orderBy('asset.createdAt', 'asc')
+        .limit(limit)
+        .execute()
+    );
   }
 
   /**
@@ -1052,30 +1117,32 @@ export class FamilyRepository {
   /** One photo, if it belongs to a member of the family, with its preview and current pet faces. */
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
   getAssetForPetScan(familyId: string, assetId: string) {
-    return this.db
-      .selectFrom('asset')
-      .innerJoin('family_member', (join) =>
-        join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
-      )
-      // the same preview face detection uses (an edited one first), so boxes and thumbnails line up
-      .innerJoinLateral(
-        (eb) =>
-          eb
-            .selectFrom('asset_file')
-            .select('asset_file.path')
-            .whereRef('asset_file.assetId', '=', 'asset.id')
-            .where('asset_file.type', '=', sql.lit(AssetFileType.Preview))
-            .orderBy('asset_file.isEdited', 'desc')
-            .limit(1)
-            .as('preview'),
-        (join) => join.onTrue(),
-      )
-      .select(['asset.id', 'asset.ownerId', 'preview.path as previewPath'])
-      .where('asset.id', '=', assetId)
-      .where('asset.deletedAt', 'is', null)
-      // never a member's Locked folder (private) or the hidden half of a live photo
-      .where('asset.visibility', 'in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)])
-      .executeTakeFirst();
+    return (
+      this.db
+        .selectFrom('asset')
+        .innerJoin('family_member', (join) =>
+          join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
+        )
+        // the same preview face detection uses (an edited one first), so boxes and thumbnails line up
+        .innerJoinLateral(
+          (eb) =>
+            eb
+              .selectFrom('asset_file')
+              .select('asset_file.path')
+              .whereRef('asset_file.assetId', '=', 'asset.id')
+              .where('asset_file.type', '=', sql.lit(AssetFileType.Preview))
+              .orderBy('asset_file.isEdited', 'desc')
+              .limit(1)
+              .as('preview'),
+          (join) => join.onTrue(),
+        )
+        .select(['asset.id', 'asset.ownerId', 'preview.path as previewPath'])
+        .where('asset.id', '=', assetId)
+        .where('asset.deletedAt', 'is', null)
+        // never a member's Locked folder (private) or the hidden half of a live photo
+        .where('asset.visibility', 'in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)])
+        .executeTakeFirst()
+    );
   }
 
   @GenerateSql({ params: [DummyValue.UUID] })
