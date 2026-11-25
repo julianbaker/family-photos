@@ -727,7 +727,8 @@ export class PersonService extends BaseService {
 
     // family fork: in a family, a merge applies to every member's copy of these people
     const familyPeople = BaseService.create(FamilyPeopleService, this);
-    const familyWide = targetId ? await familyPeople.beforeStockMerge(auth, targetId, sourceIds) : false;
+    const familyMerge = targetId ? await familyPeople.beforeStockMerge(auth, targetId, sourceIds) : undefined;
+    const familyWide = !!familyMerge;
 
     if (targets.has(auth.user.id)) {
       results.set(targetId, { id: targetId, success: true });
@@ -790,10 +791,10 @@ export class PersonService extends BaseService {
       }
     }
 
-    await this.personRepository.deleteEmptyGroups();
-    if (familyWide) {
-      await familyPeople.afterStockMerge(auth, targetId);
+    if (familyMerge) {
+      await familyPeople.afterStockMerge(auth, targetId, familyMerge);
     }
+    await this.personRepository.deleteEmptyGroups();
 
     return results.values().toArray();
   }

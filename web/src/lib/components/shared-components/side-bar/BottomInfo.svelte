@@ -23,8 +23,10 @@
 <div class="mt-2 mb-6">
   <ServerStatus />
   <!-- family fork: credit where it's due (AGPL) -->
-  <p class="ms-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
-    {branding.wordmark} · Built on
-    <a href="https://immich.app" target="_blank" rel="noopener noreferrer" class="underline">Immich</a>
-  </p>
+  {#if !branding.stock}
+    <p class="ms-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
+      {branding.wordmark} · Built on
+      <a href="https://immich.app" target="_blank" rel="noopener noreferrer" class="underline">Immich</a>
+    </p>
+  {/if}
 </div>

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 
 /** Changes whenever a model or its settings change, so every photo is scanned again once. */
-export const PET_MODEL_VERSION = 'rfdetr-m+pet-recognition-base/1';
+export const PET_MODEL_VERSION = 'rfdetr-m+pet-recognition-base/2';
 
 export const PET_MODEL_FILES = {
   /** onnx-community/rfdetr_medium-ONNX onnx/model.onnx, Apache-2.0 */
@@ -21,6 +21,17 @@ const DOG = 18;
 const CAT = 17;
 const MEAN = [0.485, 0.456, 0.406];
 const STD = [0.229, 0.224, 0.225];
+
+/**
+The models could not be loaded (missing runtime, bad file, out of memory). It concerns every photo, not
+the one being scanned, so a scan pass stops on it instead of treating each photo as failed.
+*/
+export class PetModelError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'PetModelError';
+  }
+}
 
 export type PetBox = { x1: number; y1: number; x2: number; y2: number };
 export type DetectedPet = { species: 'dog' | 'cat'; score: number; box: PetBox };
@@ -101,7 +112,13 @@ export class PetModels {
         ort.InferenceSession.create(join(this.folder, PET_MODEL_FILES.recognizer.file), options),
       ]);
       return { ort, detector, recognizer };
-    })();
+    })().catch((error) => {
+      // a failed load is not remembered: the next call tries again (the runtime may be fixed by then)
+      this.sessions = undefined;
+      throw new PetModelError(`Pet models could not be loaded: ${error instanceof Error ? error.message : error}`, {
+        cause: error,
+      });
+    });
     return this.sessions;
   }
 

@@ -75,7 +75,7 @@ docker compose down -v
 ```
 
 New upstream migrations often sort **before** the fork's already-applied ones. The fork turns on
-`allowUnorderedMigrations` when the family feature is on (`database.repository.ts`), so they still run;
+`allowUnorderedMigrations`, which is on whenever the database's migration history contains a fork migration (`database.repository.ts`), so they still run;
 without it the upgraded server refuses to start.
 
 ## 5. Ship

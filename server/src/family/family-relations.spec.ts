@@ -5,6 +5,8 @@ import {
   RelationType,
   StoredRelation,
   bloodRelationship,
+  planMergedRelations,
+  relationsBlockingPet,
   validateRelation,
 } from 'src/family/family-relations.js';
 
@@ -414,5 +416,88 @@ describe('pets', () => {
       expect(v('bo', RelationType.Parent, 'me')).toMatch('cannot be anyone');
       expect(v('bo', RelationType.Parent, 'rex')).toMatch('cannot be a companion to a pet');
     });
+  });
+});
+
+const half = (a: string, b: string) => rel(a, RelationType.Sibling, b, RelationQualifier.Half);
+
+describe('half-siblings', () => {
+  // Bea shares her father with Alex and her mother with Chris; Alex and Chris are not related
+  const halfPeople = ['bea', 'alex', 'chris', 'alexKid', 'chrisKid', 'dad', 'mum', 'twin'].map((id) => ({
+    id,
+    gender: null as Gender,
+  }));
+  const graph = new FamilyGraph(halfPeople, [
+    half('alex', 'bea'),
+    half('bea', 'chris'),
+    parent('alex', 'alexKid'),
+    parent('chris', 'chrisKid'),
+  ]);
+
+  it('keeps each half-sibling link between its own two people', () => {
+    expect(graph.relationship('bea', 'alex')?.key).toBe('half-sibling');
+    expect(graph.relationship('bea', 'chris')?.key).toBe('half-sibling');
+    expect(graph.relationship('alex', 'chris')).toBeNull();
+    expect(graph.relationship('alexKid', 'chrisKid')).toBeNull();
+  });
+
+  it('still relates a half-sibling pair through its children', () => {
+    expect(graph.relationship('bea', 'alexKid')?.key).toBe('niece-nephew');
+  });
+
+  it('still chains full siblings into one group', () => {
+    const full = new FamilyGraph(halfPeople, [
+      rel('alex', RelationType.Sibling, 'bea'),
+      rel('bea', RelationType.Sibling, 'chris'),
+    ]);
+    expect(full.relationship('alex', 'chris')?.key).toBe('sibling');
+  });
+
+  it('lets a known common parent support the relationship', () => {
+    const shared = new FamilyGraph(halfPeople, [
+      parent('dad', 'alex'),
+      parent('dad', 'bea'),
+      half('alex', 'bea'),
+    ]);
+    expect(shared.relationship('alex', 'bea')?.key).toBe('half-sibling');
+  });
+});
+
+describe('merging people', () => {
+  const ids = ['gran', 'mum', 'me', 'dad', 'other', 'rex', 'ann'].map((id) => ({ id, gender: null as Gender, pet: id === 'rex' }));
+  const stored = [parent('gran', 'mum'), parent('mum', 'me'), parent('dad', 'me'), parent('ann', 'rex')];
+
+  it('re-points relations at the target and drops self relations', () => {
+    const { added, error } = planMergedRelations(ids, stored, 'dad', ['other']);
+    expect(error).toBeNull();
+    expect(added).toEqual([]);
+    const r = planMergedRelations(ids, [...stored, parent('other', 'me'), rel('other', RelationType.Spouse, 'mum')], 'dad', ['other']);
+    expect(r.error).toBeNull();
+    // the parent edge already exists for the target; the spouse edge is re-pointed (smaller id first)
+    expect(r.added.map((x) => [x.personId, x.relatedPersonId, x.type])).toEqual([['dad', 'mum', 'spouse']]);
+  });
+
+  it('refuses merging a grandparent into a grandchild (a cycle)', () => {
+    expect(planMergedRelations(ids, stored, 'me', ['gran']).error).toMatch('own ancestor');
+  });
+
+  it('refuses a merge that would give someone a third parent', () => {
+    // two children with different parents become one person with four
+    const r = planMergedRelations(ids, [...stored, parent('ann', 'other'), parent('gran', 'other')], 'me', ['other']);
+    expect(r.error).toMatch('two parents');
+  });
+
+  it('refuses a merge that gives a pet a person-style relation', () => {
+    const r = planMergedRelations(ids, [...stored, rel('other', RelationType.Spouse, 'rex')], 'dad', ['other']);
+    expect(r.error).toMatch('pet');
+  });
+});
+
+describe('relationsBlockingPet', () => {
+  const ppl = ['ann', 'bob', 'kid', 'x'].map((id) => ({ id, gender: null as Gender }));
+  it('lists relations a pet cannot have and keeps companions', () => {
+    const relations = [parent('bob', 'ann'), parent('ann', 'kid'), rel('ann', RelationType.Spouse, 'x')];
+    expect(relationsBlockingPet(ppl, relations, 'ann').map((r) => r.type).toSorted()).toEqual(['parent', 'spouse']);
+    expect(relationsBlockingPet(ppl, [parent('bob', 'ann')], 'ann')).toEqual([]);
   });
 });

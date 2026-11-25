@@ -43,7 +43,7 @@ const ROW = TILE.height + TILE.gapY;
 export type FamilyGraph = {
   people: Map<string, TreePerson>;
   /** child → parents, with whether the link is step or adopted */
-  parents: Map<string, Map<string, { indirect: boolean }>>;
+  parents: Map<string, Map<string, { indirect: boolean; step?: boolean }>>;
   /** parent → children */
   children: Map<string, Set<string>>;
   /** person → partners, with whether the partnership is former */
@@ -74,8 +74,8 @@ export const buildGraph = (people: TreePerson[], relations: TreeRelation[]): Fam
     switch (relation.type) {
       case 'parent': {
         const indirect = relation.qualifier === 'step' || relation.qualifier === 'adopted';
-        const parents = graph.parents.get(b) ?? new Map<string, { indirect: boolean }>();
-        parents.set(a, { indirect });
+        const parents = graph.parents.get(b) ?? new Map<string, { indirect: boolean; step?: boolean }>();
+        parents.set(a, { indirect, step: relation.qualifier === 'step' });
         graph.parents.set(b, parents);
         add(graph.children, a, b);
         break;
@@ -184,6 +184,8 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
       generation,
     });
   };
+  const placedTile = (id: string) =>
+    tiles.find((tile): tile is Extract<TreeTile, { kind: 'person' }> => tile.kind === 'person' && tile.personId === id);
   const top = (y: number) => y - TILE.height / 2;
   /** Couple lines run between the tiles; partners beyond the first two share a side, a little lower. */
   const coupleY = (index: number) => (index < 2 ? 0 : (index - 1) * 14);
@@ -194,7 +196,9 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     if (isPet(id)) {
       return [];
     }
-    const parents = parentsOf(graph, id).filter((parent) => !graph.parents.get(id)?.get(parent)?.indirect);
+    // a parent slot is taken by a birth or adoptive parent, as the server counts them; only step-parents
+    // leave it free
+    const parents = parentsOf(graph, id).filter((parent) => !graph.parents.get(id)?.get(parent)?.step);
     if (parents.length >= 2) {
       return [];
     }
@@ -261,9 +265,17 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     if (depth >= up || seen.has(id)) {
       return;
     }
-    const parents = parentsOf(graph, id).filter((parent) => !seen.has(parent) && !placed.has(parent));
+    const generation = -(depth + 1);
+    const allParents = parentsOf(graph, id).filter((parent) => !seen.has(parent));
+    // a parent already placed by another branch (a shared grandparent) keeps their tile, and this
+    // child's edge to them is still drawn, when they sit in the same row
+    const sharedTiles = allParents
+      .map((parent) => ({ parent, tile: placedTile(parent) }))
+      .filter(({ tile }) => tile?.generation === generation)
+      .map(({ parent, tile }) => ({ parent, x: tile!.x }));
+    const parents = allParents.filter((parent) => !placed.has(parent));
     const slots = editable && depth < 2 ? missingParents(id) : [];
-    if (parents.length === 0 && slots.length === 0) {
+    if (parents.length === 0 && slots.length === 0 && sharedTiles.length === 0) {
       // brothers and sisters with no parents recorded still share a bracket above them
       if (childXs.length > 1) {
         const barY = top(-depth * ROW) - TILE.gapY / 2;
@@ -292,7 +304,6 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     const widths = parents.map((parent) => unitsAbove(parent, depth + 1, next, id));
     const total = widths.reduce((a, b) => a + b, 0) + slots.length;
     let cursor = x - (total * UNIT) / 2;
-    const generation = -(depth + 1);
     const xs: number[] = [];
     const dashedXs = new Set<number>();
     for (const [index, parent] of parents.entries()) {
@@ -338,6 +349,12 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
       // grandparents centred over the parent's share of the row, joined to the parent and their brothers and sisters
       placeAncestors(parent, group.length > 1 ? centre : px, depth + 1, next, [px, ...auntXs]);
     }
+    for (const { parent, x: sharedX } of sharedTiles) {
+      xs.push(sharedX);
+      if (graph.parents.get(id)?.get(parent)?.indirect) {
+        dashedXs.add(sharedX);
+      }
+    }
     for (const kind of slots) {
       const sx = cursor + UNIT / 2;
       slot(kind, id, sx, generation);
@@ -348,7 +365,8 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     const y = generation * ROW;
     const barY = bottom(y) + TILE.gapY / 2;
     // each step or adoptive parent's own line is dashed; the line down to the child only when all are
-    const indirect = parents.length > 0 && parents.every((parent) => graph.parents.get(id)?.get(parent)?.indirect);
+    const drawn = [...parents, ...sharedTiles.map(({ parent }) => parent)];
+    const indirect = drawn.length > 0 && drawn.every((parent) => graph.parents.get(id)?.get(parent)?.indirect);
     for (const px of xs) {
       lines.push({
         key: `up:${id}:${px}`,

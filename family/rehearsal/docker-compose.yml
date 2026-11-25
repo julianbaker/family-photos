@@ -15,7 +15,6 @@ services:
       DB_PASSWORD: rehearsal
       DB_DATABASE_NAME: immich
       REDIS_HOSTNAME: redis
-      IMMICH_FAMILY_ENABLED: 'true'
       IMMICH_MACHINE_LEARNING_ENABLED: 'false'
       # the rehearsal restores a database but not the photo folders, so the folder checks would fail
       IMMICH_IGNORE_MOUNT_CHECK_ERRORS: 'true'

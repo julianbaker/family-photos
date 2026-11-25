@@ -7,6 +7,7 @@ import {
   mapClusterGroupRequest,
 } from 'src/dtos/cluster-group.dto.js';
 import { UserResponseDto, mapUser } from 'src/dtos/user.dto.js';
+import { requireNoFamilyClusterChange } from 'src/family/family-membership.js';
 import { JobName, Permission } from 'src/enum.js';
 import { BaseService } from 'src/services/base.service.js';
 import { findOrFail } from 'src/utils/misc.js';
@@ -44,6 +45,8 @@ export class ClusterGroupService extends BaseService {
     }
 
     await findOrFail(() => this.userRepository.get(userId, {}), 'User');
+    // family fork: nobody is pulled into (or out of) the family's group this way
+    await requireNoFamilyClusterChange(this.familyRepository, userId, clusterGroupId);
 
     const request = await findOrFail(
       () => this.clusterGroupRepository.createRequest({ clusterGroupId, userId }),
@@ -61,6 +64,7 @@ export class ClusterGroupService extends BaseService {
     await this.requireAccess({ auth, permission: Permission.ClusterGroupRequestRead, ids: [id] });
 
     const request = await findOrFail(() => this.clusterGroupRepository.getRequest(id), 'Request');
+    await requireNoFamilyClusterChange(this.familyRepository, auth.user.id, request.clusterGroupId);
 
     await this.personRepository.reassignCluster({ userId: auth.user.id, newClusterId: request.clusterGroupId });
     await this.userRepository.update(auth.user.id, { clusterGroupId: request.clusterGroupId });
@@ -83,6 +87,7 @@ export class ClusterGroupService extends BaseService {
 
   async leave(auth: AuthDto, clusterGroupId: string): Promise<void> {
     await this.requireAccess({ auth, permission: Permission.ClusterGroupLeave, ids: [clusterGroupId] });
+    await requireNoFamilyClusterChange(this.familyRepository, auth.user.id);
 
     const hasOtherMembers = await this.clusterGroupRepository.hasOtherMembers({
       clusterGroupId,

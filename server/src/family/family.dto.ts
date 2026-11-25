@@ -24,7 +24,7 @@ const FamilyUpdateSchema = z
 
 const FamilyBrandingResponseSchema = z
   .object({
-    wordmark: z.string().describe('Text shown in place of a logo on the website'),
+    wordmark: z.string().describe('Text shown in place of a logo on the website; empty when the server has no family features (stock branding)'),
     appUrl: z.string().nullable().describe('Where to get the iOS app, if configured'),
   })
   .meta({ id: 'FamilyBrandingResponseDto' });

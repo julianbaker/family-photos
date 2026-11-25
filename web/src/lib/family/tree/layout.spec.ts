@@ -446,3 +446,60 @@ describe('people who are related two ways', () => {
     }
   });
 });
+
+describe('shared ancestors and parent slots', () => {
+  it('draws the edge from a second branch to a grandparent both branches share', () => {
+    // Me's parents Mum and Dad are first cousins: both are children of Aunt1/Aunt2, who share parents Gran and Gramps
+    const graph = buildGraph(
+      people(
+        ['Me'],
+        ['Mum', 'female'],
+        ['Dad', 'male'],
+        ['A1', 'female'],
+        ['A2', 'female'],
+        ['Gran', 'female'],
+        ['Gramps', 'male'],
+      ),
+      [
+        parent('Mum', 'Me'),
+        parent('Dad', 'Me'),
+        parent('A1', 'Mum'),
+        parent('A2', 'Dad'),
+        parent('Gran', 'A1'),
+        parent('Gran', 'A2'),
+        parent('Gramps', 'A1'),
+        parent('Gramps', 'A2'),
+      ],
+    );
+    const layout = layoutTree(graph, 'Me', { editable: false });
+    // one tile per person
+    expect(layout.tiles.filter((t) => t.kind === 'person' && t.personId === 'Gran')).toHaveLength(1);
+    // both A1 and A2 get an edge up to the shared grandparents' row
+    const grandX = [tile(layout, 'Gran').x, tile(layout, 'Gramps').x];
+    for (const child of ['A1', 'A2']) {
+      for (const x of grandX) {
+        expect(
+          layout.lines.some((l) => l.key === `up:${child}:${x}`),
+          `${child} up to ${x}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('counts an adoptive parent as occupying a parent slot, like the server', () => {
+    const graph = buildGraph(people(['Kid'], ['Ma', 'female'], ['Pa', 'male']), [
+      parent('Ma', 'Kid'),
+      parent('Pa', 'Kid', 'adopted'),
+    ]);
+    expect(slots(layoutTree(graph, 'Kid'))).not.toContain('father:Kid');
+    expect(slots(layoutTree(graph, 'Kid')).filter((slot) => slot.endsWith(':Kid') && slot.includes('arent'))).toEqual(
+      [],
+    );
+    // a step-parent still leaves the slots open
+    const stepped = buildGraph(people(['Kid'], ['Ma', 'female'], ['Step', 'male']), [
+      parent('Ma', 'Kid'),
+      parent('Step', 'Kid', 'step'),
+    ]);
+    expect(slots(layoutTree(stepped, 'Kid'))).toContain('father:Kid');
+  });
+});

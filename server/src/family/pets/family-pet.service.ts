@@ -6,7 +6,7 @@ import { OnEvent } from 'src/decorators.js';
 import { ImmichWorker, JobName, SourceType } from 'src/enum.js';
 import { FamilyPeopleService } from 'src/family/family-people.service.js';
 import { isFamilyEnabled } from 'src/family/family.flag.js';
-import { PET_MODEL_VERSION, PetModels, type PetBox } from 'src/family/pets/pet-models.js';
+import { PET_MODEL_VERSION, PetModelError, PetModels, type PetBox } from 'src/family/pets/pet-models.js';
 import type { ArgOf } from 'src/repositories/event.repository.js';
 import { AssetFaceTable } from 'src/schema/tables/asset-face.table.js';
 import { BaseService } from 'src/services/base.service.js';
@@ -50,6 +50,11 @@ const BATCH = 25;
 const RECONCILE_DELAY_MS = 15_000;
 const CATCH_UP_EVERY_MS = 6 * 60 * 60 * 1000;
 const IDLE_RELEASE_MS = 10 * 60 * 1000;
+/** Wait before trying again after the models failed to load or there is no family yet; doubles up to the maximum. */
+const MIN_BACKOFF_MS = 60 * 1000;
+const MAX_BACKOFF_MS = 60 * 60 * 1000;
+/** Previews waiting are only a shortcut (the catch-up pass finds every unscanned photo), so the list is bounded. */
+const MAX_PENDING = 1000;
 
 @Injectable()
 export class FamilyPetService extends BaseService {
@@ -60,6 +65,11 @@ export class FamilyPetService extends BaseService {
   private catchUpTimer?: NodeJS.Timeout;
   private reconcileTimer?: NodeJS.Timeout;
   private idleTimer?: NodeJS.Timeout;
+  private retryTimer?: NodeJS.Timeout;
+  /** Zero when all is well; else how long the next retry waits. While it is set, nothing else starts a pass. */
+  private backoffMs = 0;
+  /** Photos this process could not read: skipped until the next catch-up, never marked as scanned. */
+  private failed = new Set<string>();
   private stopped = false;
 
   private getModels() {
@@ -81,7 +91,10 @@ export class FamilyPetService extends BaseService {
     }
     this.logger.log('Pet recognition is on');
     this.schedule();
-    this.catchUpTimer = setInterval(() => this.schedule(), CATCH_UP_EVERY_MS);
+    this.catchUpTimer = setInterval(() => {
+      this.failed.clear();
+      this.schedule();
+    }, CATCH_UP_EVERY_MS);
   }
 
   @OnEvent({ name: 'AppShutdown' })
@@ -90,6 +103,7 @@ export class FamilyPetService extends BaseService {
     clearInterval(this.catchUpTimer);
     clearTimeout(this.reconcileTimer);
     clearTimeout(this.idleTimer);
+    clearTimeout(this.retryTimer);
   }
 
   /** A photo's preview was (re)made: look for pets in it. */
@@ -98,21 +112,36 @@ export class FamilyPetService extends BaseService {
     if (job.name !== JobName.AssetGenerateThumbnails || !petSettings().enabled || !this.getModels().available()) {
       return;
     }
-    this.pending.add(job.data.id);
+    if (this.pending.size < MAX_PENDING) {
+      this.pending.add(job.data.id);
+    }
     this.schedule();
   }
 
-  /** Runs the work loop unless it's already running; it picks up anything added meanwhile. */
-  private schedule() {
-    if (this.running || this.stopped) {
+  /**
+  Runs the work loop unless it's already running or waiting out a back-off; it picks up anything added
+  meanwhile. The back-off timer is the only thing that restarts a pass after a failure (`force`).
+  */
+  private schedule(force = false) {
+    if (this.running || this.stopped || (this.backoffMs > 0 && !force)) {
       return;
     }
     clearTimeout(this.idleTimer);
     this.running = this.runOnce()
-      .catch((error) => this.logger.error(`Pet recognition stopped: ${error}`, (error as Error)?.stack))
+      .then((result) => {
+        if (result === 'no-family') {
+          this.retryLater();
+        } else {
+          this.backoffMs = 0;
+        }
+      })
+      .catch((error) => {
+        this.logger.error(`Pet recognition stopped: ${error}`, (error as Error)?.stack);
+        this.retryLater();
+      })
       .finally(() => {
         this.running = undefined;
-        if (this.pending.size > 0) {
+        if (this.backoffMs === 0 && this.pending.size > 0) {
           // previews that arrived while this run was finishing: go again rather than wait hours
           this.schedule();
         } else {
@@ -122,11 +151,24 @@ export class FamilyPetService extends BaseService {
       });
   }
 
-  /** Scans everything waiting, then groups what's left. Public so tests can run one pass. */
-  async runOnce() {
+  /** Tries again later, waiting longer after each failure (one minute, two, four... at most an hour). */
+  private retryLater() {
+    this.backoffMs = Math.min(Math.max(this.backoffMs * 2, MIN_BACKOFF_MS), MAX_BACKOFF_MS);
+    clearTimeout(this.retryTimer);
+    this.retryTimer = setTimeout(() => this.schedule(true), this.backoffMs);
+  }
+
+  /**
+  Scans everything waiting, then groups what's left. Public so tests can run one pass. Without a family
+  there is nothing to do yet: waiting previews are dropped (the catch-up pass finds them once the family
+  exists) and the caller backs off. If the models cannot be loaded the pass stops with the error, and
+  nothing is marked as scanned.
+  */
+  async runOnce(): Promise<'done' | 'no-family'> {
     const family = await this.familyRepository.getAnyFamily();
     if (!family) {
-      return;
+      this.pending.clear();
+      return 'no-family';
     }
     // pets come only from photos the family shares: drop any on photos since locked, hidden or deleted
     const removed = await this.familyRepository.removePetFacesOnPrivatePhotos();
@@ -137,27 +179,37 @@ export class FamilyPetService extends BaseService {
     // new previews first, then the library a batch at a time, until nothing is left
     for (;;) {
       if (this.stopped) {
-        return;
+        return 'done';
       }
       let ids = [...this.pending];
       this.pending.clear();
       if (ids.length === 0) {
-        const batch = await this.familyRepository.getAssetsForPetScan(family.id, PET_MODEL_VERSION, BATCH);
+        const batch = await this.familyRepository.getAssetsForPetScan(family.id, PET_MODEL_VERSION, BATCH, [
+          ...this.failed,
+        ]);
         ids = batch.map((asset) => asset.id);
       }
       if (ids.length === 0) {
         break;
       }
-      for (const id of ids) {
+      for (const [index, id] of ids.entries()) {
         if (this.stopped) {
-          return;
+          return 'done';
         }
         try {
           changed = (await this.scan(family.id, id)) || changed;
         } catch (error) {
-          // one unreadable photo must not stop the rest; it's marked so the catch-up doesn't loop on it
+          if (error instanceof PetModelError) {
+            // not this photo's fault: keep what is left for the next try and stop the pass
+            for (const rest of ids.slice(index)) {
+              this.pending.add(rest);
+            }
+            throw error;
+          }
+          // one unreadable photo must not stop the rest. It is not marked as scanned (that would hide
+          // it for good); this process skips it until the next catch-up
           this.logger.warn(`Pet recognition could not read asset ${id}: ${error}`);
-          await this.familyRepository.markPetScanned(id, PET_MODEL_VERSION);
+          this.failed.add(id);
         }
       }
     }
@@ -166,6 +218,7 @@ export class FamilyPetService extends BaseService {
     if (changed) {
       this.reconcileSoon(family.id);
     }
+    return 'done';
   }
 
   /** Finds the pets in one photo; returns whether anything changed. */

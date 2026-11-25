@@ -52,19 +52,72 @@ from
 where
   "familyId" = $1
 
+-- FamilyRepository.getClusterOutsiders
+select
+  "user"."id",
+  "user"."email",
+  "user"."name"
+from
+  "user"
+where
+  "user"."clusterGroupId" = $1
+  and "user"."deletedAt" is null
+  and not exists (
+    select
+    from
+      "family_member"
+    where
+      "family_member"."userId" = "user"."id"
+  )
+
 -- FamilyRepository.ensurePartnerMesh
+with
+  desired as (
+    select
+      a."userId" as "sharedById",
+      b."userId" as "sharedWithId"
+    from
+      "family_member" a
+      join "family_member" b on b."familyId" = a."familyId"
+      and b."userId" != a."userId"
+    where
+      a."familyId" = $1
+  ),
+  before as (
+    select
+      d."sharedById",
+      d."sharedWithId",
+      p."inTimeline" as "prev",
+      p."sharedById" is not null as "existed"
+    from
+      desired d
+      left join "partner" p on p."sharedById" = d."sharedById"
+      and p."sharedWithId" = d."sharedWithId"
+  ),
+  grants as (
+    insert into
+      "family_partner_grant" ("sharedById", "sharedWithId", "previousInTimeline")
+    select
+      "sharedById",
+      "sharedWithId",
+      case
+        when "existed" then "prev"
+      end
+    from
+      before
+    where
+      not "existed"
+      or not "prev"
+    on conflict ("sharedById", "sharedWithId") do nothing
+  )
 insert into
   "partner" ("sharedById", "sharedWithId", "inTimeline")
 select
-  a."userId",
-  b."userId",
+  "sharedById",
+  "sharedWithId",
   true
 from
-  "family_member" a
-  join "family_member" b on b."familyId" = a."familyId"
-  and b."userId" != a."userId"
-where
-  a."familyId" = $1
+  desired
 on conflict ("sharedById", "sharedWithId") do update
 set
   "inTimeline" = true
@@ -72,18 +125,44 @@ where
   "partner"."inTimeline" = false
 
 -- FamilyRepository.removePartnerMesh
-delete from "partner"
-where
-  (
-    (
-      "sharedById" = $1
-      and "sharedWithId" = any ($2::uuid[])
-    )
-    or (
-      "sharedWithId" = $3
-      and "sharedById" = any ($4::uuid[])
-    )
+with
+  scope as (
+    select
+      *
+    from
+      "family_partner_grant" g
+    where
+      (
+        g."sharedById" = $1
+        and g."sharedWithId" = any ($2::uuid[])
+      )
+      or (
+        g."sharedWithId" = $3
+        and g."sharedById" = any ($4::uuid[])
+      )
+  ),
+  restored as (
+    update "partner" p
+    set
+      "inTimeline" = false
+    from
+      scope s
+    where
+      s."previousInTimeline" = false
+      and p."sharedById" = s."sharedById"
+      and p."sharedWithId" = s."sharedWithId"
+  ),
+  removed as (
+    delete from "partner" p using scope s
+    where
+      s."previousInTimeline" is null
+      and p."sharedById" = s."sharedById"
+      and p."sharedWithId" = s."sharedWithId"
   )
+delete from "family_partner_grant" g using scope s
+where
+  g."sharedById" = s."sharedById"
+  and g."sharedWithId" = s."sharedWithId"
 
 -- FamilyRepository.isSameFamily
 select
@@ -96,63 +175,108 @@ where
   and "b"."userId" = $2
 
 -- FamilyRepository.ensureAlbumUsers
+with
+  desired as (
+    select
+      album."id" as "albumId",
+      m."userId",
+      (
+        case
+          when m."role" = 'viewer' then $1
+          else $2
+        end
+      )::album_user_role_enum as "role"
+    from
+      "album"
+      join "album_user" owner_row on owner_row."albumId" = album."id"
+      and owner_row."role" = $3
+      join "family_member" owner on owner."userId" = owner_row."userId"
+      and owner."familyId" = $4
+      join "family_member" m on m."familyId" = $5
+      and m."userId" != owner_row."userId"
+    where
+      album."deletedAt" is null
+  ),
+  before as (
+    select
+      d."albumId",
+      d."userId",
+      d."role",
+      au."role" as "prev",
+      au."userId" is not null as "existed"
+    from
+      desired d
+      left join "album_user" au on au."albumId" = d."albumId"
+      and au."userId" = d."userId"
+  ),
+  grants as (
+    insert into
+      "family_album_grant" ("albumId", "userId", "previousRole")
+    select
+      "albumId",
+      "userId",
+      case
+        when "existed" then "prev"::text
+      end
+    from
+      before
+    where
+      not "existed"
+    on conflict ("albumId", "userId") do nothing
+  )
 insert into
   "album_user" ("albumId", "userId", "role")
 select
-  album."id",
-  m."userId",
-  (
-    case
-      when m."role" = 'viewer' then $1
-      else $2
-    end
-  )::album_user_role_enum
+  "albumId",
+  "userId",
+  "role"
 from
-  "album"
-  join "album_user" owner_row on owner_row."albumId" = album."id"
-  and owner_row."role" = $3
-  join "family_member" owner on owner."userId" = owner_row."userId"
-  and owner."familyId" = $4
-  join "family_member" m on m."familyId" = $5
-  and m."userId" != owner_row."userId"
-where
-  album."deletedAt" is null
-on conflict ("albumId", "userId") do
-update
-set
-  "role" = excluded."role"
-where
-  "album_user"."role" != $6
-  and excluded."role" = $7
-  and "album_user"."role" != $8
-
--- FamilyRepository.getViewersInOwnerFamily
-select
-  "member"."userId"
-from
-  "family_member" as "owner"
-  inner join "family_member" as "member" on "member"."familyId" = "owner"."familyId"
-where
-  "owner"."userId" = $1
-  and "member"."role" = $2
-  and "member"."userId" = any ($3::uuid[])
+  desired
+on conflict ("albumId", "userId") do nothing
 
 -- FamilyRepository.removeAlbumUsers
-delete from "album_user" au using "album_user" owner_row
-where
-  owner_row."albumId" = au."albumId"
-  and owner_row."role" = $1
-  and au."role" != $2
-  and (
-    (
-      au."userId" = $3
-      and owner_row."userId" = any ($4::uuid[])
-    )
-    or (
-      owner_row."userId" = $5
-      and au."userId" = any ($6::uuid[])
-    )
+with
+  scope as (
+    select
+      g.*
+    from
+      "family_album_grant" g
+      join "album_user" owner_row on owner_row."albumId" = g."albumId"
+      and owner_row."role" = $1
+    where
+      (
+        g."userId" = $2
+        and owner_row."userId" = any ($3::uuid[])
+      )
+      or (
+        owner_row."userId" = $4
+        and g."userId" = any ($5::uuid[])
+      )
+  ),
+  restored as (
+    update "album_user" au
+    set
+      "role" = s."previousRole"::album_user_role_enum
+    from
+      scope s
+    where
+      s."previousRole" is not null
+      and au."albumId" = s."albumId"
+      and au."userId" = s."userId"
+      and au."role" != $6
+  ),
+  removed as (
+    delete from "album_user" au using scope s
+    where
+      s."previousRole" is null
+      and au."albumId" = s."albumId"
+      and au."userId" = s."userId"
+      and au."role" != $7
   )
+delete from "family_album_grant" g using scope s
+where
+  g."albumId" = s."albumId"
+  and g."userId" = s."userId"
 
 -- FamilyRepository.getFamilyAssetIds
 select
@@ -347,7 +471,7 @@ from
   join "person_group" pg on pg."id" = p."personGroupId"
   join "family" f on f."clusterGroupId" = pg."clusterGroupId"
   and f."id" = $1
-  left join "family_member" m on m."userId" = p."ownerId"
+  join "family_member" m on m."userId" = p."ownerId"
   and m."familyId" = f."id"
 where
   not exists (

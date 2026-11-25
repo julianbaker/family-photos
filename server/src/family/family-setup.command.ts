@@ -74,3 +74,24 @@ export class FamilyAddMemberCommand extends CommandRunner {
     }
   }
 }
+
+/**
+immich-admin family-release-sharing
+Takes back the partner and album sharing the family wrote, restoring what was there before. Run it
+before going back to stock Immich. Sharing the users set up themselves is left alone.
+*/
+@Command({ name: 'family-release-sharing', description: 'Remove the sharing the family created and restore earlier sharing' })
+export class FamilyReleaseSharingCommand extends CommandRunner {
+  constructor(private service: FamilyService) {
+    super();
+  }
+
+  async run(): Promise<void> {
+    try {
+      console.log(JSON.stringify(await this.service.releaseSharingFromCli(), null, 2));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
+  }
+}

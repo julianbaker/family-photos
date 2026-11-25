@@ -4,6 +4,7 @@
   import OpenInAppPanel from '#lib/family/OpenInAppPanel.svelte';
   import type { FamilyInviteRequestWithPersonDto, FamilyInviteWithPersonDto } from '#lib/family/app-login.ts';
   import { DEFAULT_WORDMARK, branding } from '#lib/family/branding.svelte.ts';
+  import { familyState } from '#lib/family/family-state.svelte.ts';
   import { authManager } from '#lib/managers/auth-manager.svelte.ts';
   import { copyToClipboard } from '#lib/utils.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
@@ -162,10 +163,11 @@
   const onRoleChange = async (userId: string, role: FamilyRole) => {
     try {
       await updateFamilyMember({ id: userId, familyMemberUpdateDto: { role } });
-      await refresh();
+      // the caller's own role may have changed: edit controls elsewhere follow it
+      await Promise.all([refresh(), familyState.refresh()]);
     } catch (error) {
       handleError(error, 'Could not change the role');
-      await refresh();
+      await Promise.all([refresh(), familyState.refresh()]);
     }
   };
 
@@ -175,7 +177,7 @@
     }
     try {
       await removeFamilyMember({ id: userId });
-      await refresh();
+      await Promise.all([refresh(), familyState.refresh()]);
     } catch (error) {
       handleError(error, 'Could not remove the member');
     }

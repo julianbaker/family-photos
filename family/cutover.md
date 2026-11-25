@@ -33,11 +33,14 @@ details (hostnames, accounts, expected counts) belong in your own notes, not her
    Redis and machine-learning services exactly as they are (machine learning stays the stock v3.4.2 image).
 4. **Edit `.env`:**
    ```
-   IMMICH_FAMILY_ENABLED=true
+   # the family features are always on; IMMICH_FAMILY_ENABLED is ignored (a startup warning says so if set to false)
    # optional
    IMMICH_FAMILY_IOS_APP_ID=<team id>.<bundle id>
    IMMICH_FAMILY_APP_URL=<TestFlight public link>
    ```
+   The family reuses the admin's face-recognition group, so `family-setup` stops with a diagnostic if that
+   group is shared with an account that will not be in the family. Have that account leave the group
+   first (People, Leave group), or add them to the family.
 5. **Start:** `docker compose up -d`, then `docker compose logs -f immich-server` until you see the three
    `Family…` migrations succeed and `No schema drift detected`.
 6. **Create the family:**

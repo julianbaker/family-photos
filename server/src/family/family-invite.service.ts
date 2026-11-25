@@ -224,32 +224,28 @@ export class FamilyInviteService extends BaseService {
       ? await this.people().requireInvitablePerson(membership.familyId, request.personId)
       : null;
     const requester = await this.userRepository.get(request.requestedById, {});
-    const { invite, token } = await this.createInvite(
-      membership,
+    // the request is claimed and its invite created in one transaction: a lost race leaves no invite
+    const token = this.cryptoRepository.randomBytesAsText(24);
+    const approved = await this.familyRepository.approveInviteRequest(
+      id,
+      membership.familyId,
+      {
+        familyId: membership.familyId,
+        tokenHash: this.cryptoRepository.hashSha256(token),
+        label: `For ${request.name}`,
+        role: dto.role,
+        maxUses: dto.maxUses,
+        expiresAt: new Date(Date.now() + dto.expiresInDays * DAY_MS),
+        createdById: auth.user.id,
+        personId: request.personId,
+      },
+      token,
       auth.user.id,
-      dto,
-      `For ${request.name}`,
-      request.personId,
     );
-    const decided = await this.familyRepository.decideInviteRequest(id, {
-      status: FamilyInviteRequestStatus.Approved,
-      decidedById: auth.user.id,
-      inviteId: invite.id,
-      inviteToken: token,
-    });
-    if (!decided) {
+    if (!approved) {
       throw new BadRequestException('Request not found or already decided');
     }
-
-    await this.familyRepository.addHistory({
-      familyId: membership.familyId,
-      userId: auth.user.id,
-      action: FamilyHistoryAction.InviteRequestApprove,
-      entityType: 'invite-request',
-      entityId: id,
-      before: { status: FamilyInviteRequestStatus.Pending },
-      after: { status: FamilyInviteRequestStatus.Approved, inviteId: invite.id },
-    });
+    const decided = approved.request;
 
     return this.mapRequest({ ...decided, requestedByName: requester?.name ?? '', personName: person?.name ?? null });
   }

@@ -5,7 +5,7 @@ import { InjectKysely } from 'nestjs-kysely';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
 import { AlbumUserRole, AssetFileType, AssetVisibility, SourceType } from 'src/enum.js';
 import { FAMILY_VISIBILITIES } from 'src/family/family-access.js';
-import { FamilyInviteRequestStatus, FamilyRole } from 'src/family/family.enum.js';
+import { FamilyHistoryAction, FamilyInviteRequestStatus, FamilyRole } from 'src/family/family.enum.js';
 import { FamilyAppLoginCodeTable } from 'src/family/schema/family-app-login-code.table.js';
 import { FamilyCommentTable } from 'src/family/schema/family-comment.table.js';
 import { FamilyHistoryTable } from 'src/family/schema/family-history.table.js';
@@ -124,40 +124,230 @@ export class FamilyRepository {
     await this.db.deleteFrom('family_member').where('userId', '=', userId).execute();
   }
 
+  private async lockFamily(trx: Kysely<DB>, familyId: string) {
+    await trx.selectFrom('family').select('id').where('id', '=', familyId).forUpdate().executeTakeFirst();
+  }
+
+  /** Users who share the family's cluster group without being members (the family's boundary is broken). */
+  @GenerateSql({ params: [DummyValue.UUID] })
+  getClusterOutsiders(clusterGroupId: string) {
+    return this.db
+      .selectFrom('user')
+      .select(['user.id', 'user.email', 'user.name'])
+      .where('user.clusterGroupId', '=', clusterGroupId)
+      .where('user.deletedAt', 'is', null)
+      .where((eb) =>
+        eb.not(eb.exists(eb.selectFrom('family_member').whereRef('family_member.userId', '=', 'user.id'))),
+      )
+      .execute();
+  }
+
+  /** Creates the family, its first admin and the history entry in one transaction: all or nothing. */
+  async createFamilyWithAdmin(clusterGroupId: string, name: string | undefined, userId: string) {
+    return this.db.transaction().execute(async (trx) => {
+      const family = await trx
+        .insertInto('family')
+        .values({ clusterGroupId, ...(name && { name }) })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      await trx
+        .insertInto('family_member')
+        .values({ userId, familyId: family.id, role: FamilyRole.Admin, addedById: userId })
+        .execute();
+      await trx
+        .insertInto('family_history')
+        .values({
+          familyId: family.id,
+          userId,
+          action: FamilyHistoryAction.FamilyCreate,
+          entityType: 'family',
+          entityId: family.id,
+          before: null,
+          after: { name: family.name },
+        })
+        .execute();
+      return family;
+    });
+  }
+
+  /** Adds a member and records it in one transaction. False when the user already is in a family. */
+  async addMemberWithHistory(
+    member: { userId: string; familyId: string; role: FamilyRole; addedById: string | null },
+    actorId: string | null,
+  ): Promise<boolean> {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockFamily(trx, member.familyId);
+      const existing = await trx
+        .selectFrom('family_member')
+        .select('userId')
+        .where('userId', '=', member.userId)
+        .executeTakeFirst();
+      if (existing) {
+        return false;
+      }
+      await trx.insertInto('family_member').values(member).execute();
+      await trx
+        .insertInto('family_history')
+        .values({
+          familyId: member.familyId,
+          userId: actorId,
+          action: FamilyHistoryAction.MemberAdd,
+          entityType: 'user',
+          entityId: member.userId,
+          before: null,
+          after: { role: member.role },
+        })
+        .execute();
+      return true;
+    });
+  }
+
+  /**
+  Changes a member's role and records it, with the family row locked so two admins cannot each demote
+  themselves after both saw two admins.
+  */
+  async changeMemberRole(
+    familyId: string,
+    userId: string,
+    role: FamilyRole,
+    actorId: string,
+  ): Promise<{ result: 'changed'; previous: FamilyRole } | { result: 'unchanged' | 'not-a-member' | 'last-admin' }> {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockFamily(trx, familyId);
+      const members = await trx.selectFrom('family_member').select(['userId', 'role']).where('familyId', '=', familyId).execute();
+      const member = members.find((item) => item.userId === userId);
+      if (!member) {
+        return { result: 'not-a-member' as const };
+      }
+      if (member.role === role) {
+        return { result: 'unchanged' as const };
+      }
+      if (member.role === FamilyRole.Admin && members.filter((item) => item.role === FamilyRole.Admin).length === 1) {
+        return { result: 'last-admin' as const };
+      }
+      await trx.updateTable('family_member').set({ role }).where('userId', '=', userId).execute();
+      await trx
+        .insertInto('family_history')
+        .values({
+          familyId,
+          userId: actorId,
+          action: FamilyHistoryAction.MemberRoleUpdate,
+          entityType: 'user',
+          entityId: userId,
+          before: { role: member.role },
+          after: { role },
+        })
+        .execute();
+      return { result: 'changed' as const, previous: member.role as FamilyRole };
+    });
+  }
+
+  /**
+  Removes a member in one transaction, with the family row locked (the last admin cannot go, even with
+  two removals at once): restores the sharing the family wrote for them, deletes the membership and
+  records it. The caller then moves the user to a cluster group of their own.
+  */
+  async removeMemberChecked(
+    familyId: string,
+    userId: string,
+    actorId: string,
+  ): Promise<{ result: 'removed'; role: FamilyRole } | { result: 'not-a-member' | 'last-admin' }> {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockFamily(trx, familyId);
+      const members = await trx.selectFrom('family_member').select(['userId', 'role']).where('familyId', '=', familyId).execute();
+      const member = members.find((item) => item.userId === userId);
+      if (!member) {
+        return { result: 'not-a-member' as const };
+      }
+      if (member.role === FamilyRole.Admin && members.filter((item) => item.role === FamilyRole.Admin).length === 1) {
+        return { result: 'last-admin' as const };
+      }
+      const otherIds = members.map((item) => item.userId).filter((id) => id !== userId);
+      await this.removePartnerMesh(userId, otherIds, trx);
+      await this.removeAlbumUsers(userId, otherIds, trx);
+      await trx.deleteFrom('family_member').where('userId', '=', userId).execute();
+      await trx
+        .insertInto('family_history')
+        .values({
+          familyId,
+          userId: actorId,
+          action: FamilyHistoryAction.MemberRemove,
+          entityType: 'user',
+          entityId: userId,
+          before: { role: member.role },
+          after: null,
+        })
+        .execute();
+      return { result: 'removed' as const, role: member.role as FamilyRole };
+    });
+  }
+
   /**
   Partner rows in both directions between every pair of members, all shown in the timeline. This is
   what makes stock timeline, search, map, people lists and the mobile sync (with backfill) include
-  every member's photos.
+  every member's photos. Each row the family creates (or switches into the timeline) is recorded in
+  `family_partner_grant` with what was there before, so removing a member can put it back. Rows the
+  users already shared themselves (in the timeline) are left unrecorded and never touched.
   */
   @GenerateSql({ params: [DummyValue.UUID] })
   async ensurePartnerMesh(familyId: string): Promise<void> {
     await sql`
+      with desired as (
+        select a."userId" as "sharedById", b."userId" as "sharedWithId"
+        from "family_member" a
+        join "family_member" b on b."familyId" = a."familyId" and b."userId" != a."userId"
+        where a."familyId" = ${familyId}
+      ),
+      before as (
+        select d."sharedById", d."sharedWithId", p."inTimeline" as "prev", p."sharedById" is not null as "existed"
+        from desired d
+        left join "partner" p on p."sharedById" = d."sharedById" and p."sharedWithId" = d."sharedWithId"
+      ),
+      grants as (
+        insert into "family_partner_grant" ("sharedById", "sharedWithId", "previousInTimeline")
+        select "sharedById", "sharedWithId", case when "existed" then "prev" end
+        from before
+        where not "existed" or not "prev"
+        on conflict ("sharedById", "sharedWithId") do nothing
+      )
       insert into "partner" ("sharedById", "sharedWithId", "inTimeline")
-      select a."userId", b."userId", true
-      from "family_member" a
-      join "family_member" b on b."familyId" = a."familyId" and b."userId" != a."userId"
-      where a."familyId" = ${familyId}
+      select "sharedById", "sharedWithId", true from desired
       on conflict ("sharedById", "sharedWithId") do update set "inTimeline" = true
       where "partner"."inTimeline" = false
     `.execute(this.db);
   }
 
-  /** Removes the partner rows between a leaving member and the rest of the family. */
+  /**
+  Puts the partner rows between a leaving member and the rest of the family back as they were: rows the
+  family created are deleted, rows it switched into the timeline are switched back, and sharing the
+  users set up themselves stays.
+  */
   @GenerateSql({ params: [DummyValue.UUID, [DummyValue.UUID]] })
-  async removePartnerMesh(userId: string, otherIds: string[]): Promise<void> {
+  async removePartnerMesh(userId: string, otherIds: string[], db: Kysely<DB> = this.db): Promise<void> {
     if (otherIds.length === 0) {
       return;
     }
 
-    await this.db
-      .deleteFrom('partner')
-      .where((eb) =>
-        eb.or([
-          eb.and([eb('sharedById', '=', userId), eb('sharedWithId', '=', anyUuid(otherIds))]),
-          eb.and([eb('sharedWithId', '=', userId), eb('sharedById', '=', anyUuid(otherIds))]),
-        ]),
+    await sql`
+      with scope as (
+        select * from "family_partner_grant" g
+        where (g."sharedById" = ${userId} and g."sharedWithId" = ${anyUuid(otherIds)})
+          or (g."sharedWithId" = ${userId} and g."sharedById" = ${anyUuid(otherIds)})
+      ),
+      restored as (
+        update "partner" p set "inTimeline" = false
+        from scope s
+        where s."previousInTimeline" = false and p."sharedById" = s."sharedById" and p."sharedWithId" = s."sharedWithId"
+      ),
+      removed as (
+        delete from "partner" p
+        using scope s
+        where s."previousInTimeline" is null and p."sharedById" = s."sharedById" and p."sharedWithId" = s."sharedWithId"
       )
-      .execute();
+      delete from "family_partner_grant" g
+      using scope s
+      where g."sharedById" = s."sharedById" and g."sharedWithId" = s."sharedWithId"
+    `.execute(db);
   }
 
   /** True when both users are members of the same family (the pair is part of the managed mesh). */
@@ -177,29 +367,43 @@ export class FamilyRepository {
   Every member is an album user on every album owned by another member: Editor for admins and
   members, Viewer for viewers. Album ownership is the `album_user` row with role `owner`. Existing
   rows keep their role unless `refreshRoles` is set, except that a Viewer is always cut back to Viewer;
-  owner rows are never touched.
+  owner rows are never touched. Every row the family creates or changes is recorded in
+  `family_album_grant` with the role it replaced (none for a new row).
   */
   @GenerateSql({ params: [DummyValue.UUID] })
   async ensureAlbumUsers(familyId: string, options: { albumId?: string; refreshRoles?: boolean } = {}) {
     const { albumId, refreshRoles } = options;
     await sql`
+      with desired as (
+        select album."id" as "albumId", m."userId",
+          (case when m."role" = 'viewer' then ${AlbumUserRole.Viewer} else ${AlbumUserRole.Editor} end)::album_user_role_enum as "role"
+        from "album"
+        join "album_user" owner_row on owner_row."albumId" = album."id" and owner_row."role" = ${AlbumUserRole.Owner}
+        join "family_member" owner on owner."userId" = owner_row."userId" and owner."familyId" = ${familyId}
+        join "family_member" m on m."familyId" = ${familyId} and m."userId" != owner_row."userId"
+        where album."deletedAt" is null
+        ${albumId ? sql`and album."id" = ${albumId}` : sql``}
+      ),
+      before as (
+        select d."albumId", d."userId", d."role", au."role" as "prev", au."userId" is not null as "existed"
+        from desired d
+        left join "album_user" au on au."albumId" = d."albumId" and au."userId" = d."userId"
+      ),
+      grants as (
+        insert into "family_album_grant" ("albumId", "userId", "previousRole")
+        select "albumId", "userId", case when "existed" then "prev"::text end
+        from before
+        where not "existed"
+          -- a role the family changes: any difference when refreshing; otherwise only cutting a Viewer back
+          or ("prev" != "role" and "prev" != ${AlbumUserRole.Owner} and (${refreshRoles ? sql`true` : sql`false`} or "role" = ${AlbumUserRole.Viewer}))
+        on conflict ("albumId", "userId") do nothing
+      )
       insert into "album_user" ("albumId", "userId", "role")
-      select album."id", m."userId",
-        (case when m."role" = 'viewer' then ${AlbumUserRole.Viewer} else ${AlbumUserRole.Editor} end)::album_user_role_enum
-      from "album"
-      join "album_user" owner_row on owner_row."albumId" = album."id" and owner_row."role" = ${AlbumUserRole.Owner}
-      join "family_member" owner on owner."userId" = owner_row."userId" and owner."familyId" = ${familyId}
-      join "family_member" m on m."familyId" = ${familyId} and m."userId" != owner_row."userId"
-      where album."deletedAt" is null
-      ${albumId ? sql`and album."id" = ${albumId}` : sql``}
+      select "albumId", "userId", "role" from desired
+      -- viewers are viewers in albums, whatever an owner or an earlier role gave them
       on conflict ("albumId", "userId") do update set "role" = excluded."role"
-        where "album_user"."role" != ${AlbumUserRole.Owner}
-          and ${
-            refreshRoles
-              ? sql`"album_user"."role" != excluded."role"`
-              : // viewers are viewers in albums, whatever an owner or an earlier role gave them
-                sql`excluded."role" = ${AlbumUserRole.Viewer} and "album_user"."role" != ${AlbumUserRole.Viewer}`
-          }
+        where "album_user"."role" != excluded."role" and "album_user"."role" != ${AlbumUserRole.Owner}
+          and (${refreshRoles ? sql`true` : sql`false`} or excluded."role" = ${AlbumUserRole.Viewer})
     `.execute(this.db);
   }
 
@@ -221,24 +425,80 @@ export class FamilyRepository {
     return new Set(rows.map(({ userId }) => userId));
   }
 
-  /** Removes a leaving member from albums owned by the rest of the family, and the family from theirs. */
+  /**
+  Puts album sharing between a leaving member and the rest of the family back as it was: album users
+  the family added are removed, roles it changed are set back, and sharing the album owners set up
+  themselves stays.
+  */
   @GenerateSql({ params: [DummyValue.UUID, [DummyValue.UUID]] })
-  async removeAlbumUsers(userId: string, otherIds: string[]): Promise<void> {
+  async removeAlbumUsers(userId: string, otherIds: string[], db: Kysely<DB> = this.db): Promise<void> {
     if (otherIds.length === 0) {
       return;
     }
 
     await sql`
-      delete from "album_user" au
-      using "album_user" owner_row
-      where owner_row."albumId" = au."albumId"
-        and owner_row."role" = ${AlbumUserRole.Owner}
-        and au."role" != ${AlbumUserRole.Owner}
-        and (
-          (au."userId" = ${userId} and owner_row."userId" = ${anyUuid(otherIds)})
-          or (owner_row."userId" = ${userId} and au."userId" = ${anyUuid(otherIds)})
-        )
-    `.execute(this.db);
+      with scope as (
+        select g.* from "family_album_grant" g
+        join "album_user" owner_row on owner_row."albumId" = g."albumId" and owner_row."role" = ${AlbumUserRole.Owner}
+        where (g."userId" = ${userId} and owner_row."userId" = ${anyUuid(otherIds)})
+          or (owner_row."userId" = ${userId} and g."userId" = ${anyUuid(otherIds)})
+      ),
+      restored as (
+        update "album_user" au set "role" = s."previousRole"::album_user_role_enum
+        from scope s
+        where s."previousRole" is not null and au."albumId" = s."albumId" and au."userId" = s."userId"
+          and au."role" != ${AlbumUserRole.Owner}
+      ),
+      removed as (
+        delete from "album_user" au
+        using scope s
+        where s."previousRole" is null and au."albumId" = s."albumId" and au."userId" = s."userId"
+          and au."role" != ${AlbumUserRole.Owner}
+      )
+      delete from "family_album_grant" g
+      using scope s
+      where g."albumId" = s."albumId" and g."userId" = s."userId"
+    `.execute(db);
+  }
+
+  /**
+  Takes back all sharing the family wrote, whoever is a member: the explicit way to stop the family
+  from managing partner and album sharing (e.g. before running stock Immich again).
+  */
+  async releaseManagedSharing(): Promise<{ partners: number; albumUsers: number }> {
+    return this.db.transaction().execute(async (trx) => {
+      const partners = await sql<{ count: string }>`
+        with restored as (
+          update "partner" p set "inTimeline" = false
+          from "family_partner_grant" g
+          where g."previousInTimeline" = false and p."sharedById" = g."sharedById" and p."sharedWithId" = g."sharedWithId"
+        ),
+        removed as (
+          delete from "partner" p
+          using "family_partner_grant" g
+          where g."previousInTimeline" is null and p."sharedById" = g."sharedById" and p."sharedWithId" = g."sharedWithId"
+        ),
+        cleared as (delete from "family_partner_grant" returning 1)
+        select count(*)::text as count from cleared
+      `.execute(trx);
+      const albumUsers = await sql<{ count: string }>`
+        with restored as (
+          update "album_user" au set "role" = g."previousRole"::album_user_role_enum
+          from "family_album_grant" g
+          where g."previousRole" is not null and au."albumId" = g."albumId" and au."userId" = g."userId"
+            and au."role" != ${AlbumUserRole.Owner}
+        ),
+        removed as (
+          delete from "album_user" au
+          using "family_album_grant" g
+          where g."previousRole" is null and au."albumId" = g."albumId" and au."userId" = g."userId"
+            and au."role" != ${AlbumUserRole.Owner}
+        ),
+        cleared as (delete from "family_album_grant" returning 1)
+        select count(*)::text as count from cleared
+      `.execute(trx);
+      return { partners: Number(partners.rows[0].count), albumUsers: Number(albumUsers.rows[0].count) };
+    });
   }
 
   /**
@@ -472,6 +732,76 @@ export class FamilyRepository {
       .executeTakeFirst();
   }
 
+  /**
+  Approves a pending request and creates its invite in one transaction, with the request locked: two
+  admins approving at once cannot both leave an invite behind, the loser gets nothing and no invite.
+  Returns nothing when the request is no longer pending.
+  */
+  async approveInviteRequest(
+    id: string,
+    familyId: string,
+    invite: Insertable<FamilyInviteTable>,
+    token: string,
+    decidedById: string,
+  ) {
+    return this.db.transaction().execute(async (trx) => {
+      const pending = await trx
+        .selectFrom('family_invite_request')
+        .select('id')
+        .where('id', '=', id)
+        .where('familyId', '=', familyId)
+        .where('status', '=', FamilyInviteRequestStatus.Pending)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!pending) {
+        return;
+      }
+      const created = await trx.insertInto('family_invite').values(invite).returningAll().executeTakeFirstOrThrow();
+      const request = await trx
+        .updateTable('family_invite_request')
+        .set({
+          status: FamilyInviteRequestStatus.Approved,
+          decidedById,
+          decidedAt: new Date(),
+          inviteId: created.id,
+          inviteToken: token,
+        })
+        .where('id', '=', id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      await trx
+        .insertInto('family_history')
+        .values([
+          {
+            familyId,
+            userId: decidedById,
+            action: FamilyHistoryAction.InviteCreate,
+            entityType: 'invite',
+            entityId: created.id,
+            before: null,
+            after: {
+              role: created.role,
+              maxUses: created.maxUses,
+              expiresAt: created.expiresAt,
+              label: created.label,
+              personId: created.personId,
+            },
+          },
+          {
+            familyId,
+            userId: decidedById,
+            action: FamilyHistoryAction.InviteRequestApprove,
+            entityType: 'invite-request',
+            entityId: id,
+            before: { status: FamilyInviteRequestStatus.Pending },
+            after: { status: FamilyInviteRequestStatus.Approved, inviteId: created.id },
+          },
+        ])
+        .execute();
+      return { invite: created, request };
+    });
+  }
+
   // app sign-in codes
 
   createAppLoginCode(code: Insertable<FamilyAppLoginCodeTable>) {
@@ -507,7 +837,8 @@ export class FamilyRepository {
 
   /**
   Creates the family's shared record for every person group in the family's cluster group that has
-  none yet, taking the name and birth date from the members' own copies: a named copy first, a family
+  none yet, taking the name and birth date from the members' own copies (never a non-member's: a group
+  that only a non-member has a copy of is not imported): a named copy first, a family
   admin's first, one with a birth date first.
   */
   @GenerateSql({ params: [DummyValue.UUID] })
@@ -518,7 +849,7 @@ export class FamilyRepository {
       from "person" p
       join "person_group" pg on pg."id" = p."personGroupId"
       join "family" f on f."clusterGroupId" = pg."clusterGroupId" and f."id" = ${familyId}
-      left join "family_member" m on m."userId" = p."ownerId" and m."familyId" = f."id"
+      join "family_member" m on m."userId" = p."ownerId" and m."familyId" = f."id"
       where not exists (select 1 from "family_person" fp where fp."personGroupId" = p."personGroupId")
       order by p."personGroupId", p."name" = '', m."role" = 'admin' desc, p."birthDate" is null
       on conflict ("personGroupId") do nothing
@@ -568,57 +899,55 @@ export class FamilyRepository {
   }
 
   @GenerateSql({ params: [DummyValue.UUID] })
-  getFamilyPeople(familyId: string) {
-    return (
-      this.db
-        .selectFrom('family_person')
-        .selectAll('family_person')
-        .select((eb) =>
-          eb
-            .selectFrom('asset_face')
-            .select((eb) => eb.fn.countAll<number>().as('count'))
-            .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
-            .where('asset_face.deletedAt', 'is', null)
-            .where('asset_face.isVisible', '=', true)
-            .as('faceCount'),
-        )
-        // a pet when its faces were all found by pet recognition: one stray pet box assigned to a person
-        // by hand doesn't turn them into a pet
-        .select((eb) =>
-          eb
-            .and([
+  getFamilyPeople(familyId: string, db: Kysely<DB> = this.db) {
+    return db
+      .selectFrom('family_person')
+      .selectAll('family_person')
+      .select((eb) =>
+        eb
+          .selectFrom('asset_face')
+          .select((eb) => eb.fn.countAll<number>().as('count'))
+          .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
+          .where('asset_face.deletedAt', 'is', null)
+          .where('asset_face.isVisible', '=', true)
+          .as('faceCount'),
+      )
+      // a pet when its faces were all found by pet recognition: one stray pet box assigned to a person
+      // by hand doesn't turn them into a pet
+      .select((eb) =>
+        eb
+          .and([
+            eb.exists(
+              eb
+                .selectFrom('asset_face')
+                .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
+                .where('asset_face.sourceType', '=', sql.lit(SourceType.Pet))
+                .where('asset_face.deletedAt', 'is', null),
+            ),
+            eb.not(
               eb.exists(
                 eb
                   .selectFrom('asset_face')
                   .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
-                  .where('asset_face.sourceType', '=', sql.lit(SourceType.Pet))
+                  .where('asset_face.sourceType', '!=', sql.lit(SourceType.Pet))
                   .where('asset_face.deletedAt', 'is', null),
               ),
-              eb.not(
-                eb.exists(
-                  eb
-                    .selectFrom('asset_face')
-                    .whereRef('asset_face.personGroupId', '=', 'family_person.personGroupId')
-                    .where('asset_face.sourceType', '!=', sql.lit(SourceType.Pet))
-                    .where('asset_face.deletedAt', 'is', null),
-                ),
-              ),
-            ])
-            .as('hasPetFaces'),
-        )
-        // when anyone's copy last changed (its picture is rewritten by the thumbnail job): apps use it
-        // to know a cached picture is out of date
-        .select((eb) =>
-          eb
-            .selectFrom('person')
-            .select((eb) => eb.fn.max('person.updatedAt').as('pictureAt'))
-            .whereRef('person.personGroupId', '=', 'family_person.personGroupId')
-            .as('pictureAt'),
-        )
-        .where('family_person.familyId', '=', familyId)
-        .orderBy('family_person.name', 'asc')
-        .execute()
-    );
+            ),
+          ])
+          .as('hasPetFaces'),
+      )
+      // when anyone's copy last changed (its picture is rewritten by the thumbnail job): apps use it
+      // to know a cached picture is out of date
+      .select((eb) =>
+        eb
+          .selectFrom('person')
+          .select((eb) => eb.fn.max('person.updatedAt').as('pictureAt'))
+          .whereRef('person.personGroupId', '=', 'family_person.personGroupId')
+          .as('pictureAt'),
+      )
+      .where('family_person.familyId', '=', familyId)
+      .orderBy('family_person.name', 'asc')
+      .execute();
   }
 
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
@@ -675,64 +1004,69 @@ export class FamilyRepository {
     });
   }
 
-  /**
-  Adds a relative in one transaction: the new person (when there is one) and every relation, so a
-  failure leaves nothing behind. `NEW` in a relation stands for the new person's id.
-  */
-  async addRelative(
+  /** Inserts the new person (when there is one) and the relations; `NEW` in a relation stands for the new person's id. */
+  private async insertRelationsIn(
+    trx: Kysely<DB>,
     family: { id: string; clusterGroupId: string },
     newPerson: Omit<Insertable<FamilyPersonTable>, 'personGroupId' | 'familyId'> | null,
     relations: Omit<Insertable<FamilyRelationTable>, 'familyId'>[],
-    /** Relations stored once with the smaller id first (spouse, sibling, friend). */
     undirected: (type: string) => boolean,
   ) {
-    return this.db.transaction().execute(async (trx) => {
-      let newId: string | null = null;
-      if (newPerson) {
-        const group = await trx
-          .insertInto('person_group')
-          .values({ clusterGroupId: family.clusterGroupId })
-          .returning('id')
-          .executeTakeFirstOrThrow();
-        newId = group.id;
-        await trx
-          .insertInto('family_person')
-          .values({ ...newPerson, personGroupId: newId, familyId: family.id })
-          .execute();
-      }
-      const resolve = (id: string) => (id === 'NEW' ? newId! : id);
-      const created = await trx
-        .insertInto('family_relation')
-        .values(
-          relations.map((relation) => {
-            let a = resolve(relation.personGroupId);
-            let b = resolve(relation.relatedPersonGroupId);
-            if (undirected(relation.type) && a > b) {
-              [a, b] = [b, a];
-            }
-            return { ...relation, familyId: family.id, personGroupId: a, relatedPersonGroupId: b };
-          }),
-        )
-        .returningAll()
+    let newId: string | null = null;
+    if (newPerson) {
+      const group = await trx
+        .insertInto('person_group')
+        .values({ clusterGroupId: family.clusterGroupId })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      newId = group.id;
+      await trx
+        .insertInto('family_person')
+        .values({ ...newPerson, personGroupId: newId, familyId: family.id })
         .execute();
-      return { newId, relations: created };
-    });
+    }
+    const resolve = (id: string) => (id === 'NEW' ? newId! : id);
+    const created =
+      relations.length === 0
+        ? []
+        : await trx
+            .insertInto('family_relation')
+            .values(
+              relations.map((relation) => {
+                let a = resolve(relation.personGroupId);
+                let b = resolve(relation.relatedPersonGroupId);
+                if (undirected(relation.type) && a > b) {
+                  [a, b] = [b, a];
+                }
+                return { ...relation, familyId: family.id, personGroupId: a, relatedPersonGroupId: b };
+              }),
+            )
+            .returningAll()
+            .execute();
+    return { newId, relations: created };
   }
 
   /**
   Folds `sourceIds` into `targetId` before a merge: the target takes `values` (the combined details)
-  and every relation of a source is re-pointed at the target. Relations that would point a person at
-  themselves, or repeat one the target already has, are dropped. Symmetric relations (spouse, sibling,
-  friend) keep the smaller ID first. The source records themselves go when the merge deletes their
-  person groups.
+  and the relations `plan` returns (the sources' relations re-pointed at the target, already checked
+  against the family's rules, under the graph lock) are added. The sources' own relations stay until the
+  merge deletes their person groups, so a merge that fails can be undone with `undoMergeRelations`.
+  Returns the ids of the relations that were added.
   */
   async mergeFamilyPeople(
     familyId: string,
     targetId: string,
     sourceIds: string[],
     values: Updateable<FamilyPersonTable>,
-  ): Promise<void> {
-    await this.db.transaction().execute(async (trx) => {
+    plan: (
+      people: Awaited<ReturnType<FamilyRepository['getFamilyPeople']>>,
+      relations: Awaited<ReturnType<FamilyRepository['getRelations']>>,
+    ) => Omit<Insertable<FamilyRelationTable>, 'familyId'>[],
+  ): Promise<{ id: string; personGroupId: string; relatedPersonGroupId: string; type: string }[]> {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockGraph(trx, familyId);
+      const [people, relations] = await Promise.all([this.getFamilyPeople(familyId, trx), this.getRelations(familyId, trx)]);
+      const added = plan(people, relations);
       // "this is me" is unique: free it on the sources before the target takes it
       await trx
         .updateTable('family_person')
@@ -748,32 +1082,47 @@ export class FamilyRepository {
           .where('personGroupId', '=', targetId)
           .execute();
       }
-      await sql`
-        insert into "family_relation"
-          ("familyId", "personGroupId", "relatedPersonGroupId", "type", "qualifier", "label", "createdById")
-        select r."familyId",
-          case when r."type" in ('spouse', 'sibling', 'friend') then least(r.a, r.b) else r.a end,
-          case when r."type" in ('spouse', 'sibling', 'friend') then greatest(r.a, r.b) else r.b end,
-          r."type", r."qualifier", r."label", r."createdById"
-        from (
-          select fr.*,
-            case when fr."personGroupId" = ${anyUuid(sourceIds)} then ${targetId}::uuid else fr."personGroupId" end as a,
-            case when fr."relatedPersonGroupId" = ${anyUuid(sourceIds)} then ${targetId}::uuid else fr."relatedPersonGroupId" end as b
-          from "family_relation" fr
-          where fr."familyId" = ${familyId}
-            and (fr."personGroupId" = ${anyUuid(sourceIds)} or fr."relatedPersonGroupId" = ${anyUuid(sourceIds)})
-        ) r
-        where r.a <> r.b
-        on conflict ("personGroupId", "relatedPersonGroupId", "type") do nothing
-      `.execute(trx);
-      await trx
-        .deleteFrom('family_relation')
-        .where('familyId', '=', familyId)
-        .where((eb) =>
-          eb.or([eb('personGroupId', '=', anyUuid(sourceIds)), eb('relatedPersonGroupId', '=', anyUuid(sourceIds))]),
-        )
+      if (added.length === 0) {
+        return [];
+      }
+      return trx
+        .insertInto('family_relation')
+        .values(added.map((relation) => ({ ...relation, familyId })))
+        .onConflict((oc) => oc.columns(['personGroupId', 'relatedPersonGroupId', 'type']).doNothing())
+        .returning(['id', 'personGroupId', 'relatedPersonGroupId', 'type'])
         .execute();
     });
+  }
+
+  /** Removes relations a merge added for sources whose merge did not complete. */
+  async undoMergeRelations(familyId: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) {
+      return;
+    }
+    await this.db.deleteFrom('family_relation').where('familyId', '=', familyId).where('id', '=', anyUuid(ids)).execute();
+  }
+
+  /**
+  After a merge: drops the family record of each source whose copies are all gone (merged into the
+  target), so the stock cleanup can delete the empty person group (the cleanup never deletes a group
+  that still has a family record). Returns the ones dropped.
+  */
+  async dropMergedFamilyPeople(familyId: string, personGroupIds: string[]): Promise<string[]> {
+    if (personGroupIds.length === 0) {
+      return [];
+    }
+    const rows = await this.db
+      .deleteFrom('family_person')
+      .where('familyId', '=', familyId)
+      .where('personGroupId', '=', anyUuid(personGroupIds))
+      .where((eb) =>
+        eb.not(
+          eb.exists(eb.selectFrom('person').whereRef('person.personGroupId', '=', 'family_person.personGroupId').select('person.ownerId')),
+        ),
+      )
+      .returning('personGroupId')
+      .execute();
+    return rows.map((row) => row.personGroupId);
   }
 
   /**
@@ -802,12 +1151,71 @@ export class FamilyRepository {
   // relations
 
   @GenerateSql({ params: [DummyValue.UUID] })
-  getRelations(familyId: string) {
-    return this.db.selectFrom('family_relation').selectAll().where('familyId', '=', familyId).execute();
+  getRelations(familyId: string, db: Kysely<DB> = this.db) {
+    return db.selectFrom('family_relation').selectAll().where('familyId', '=', familyId).execute();
   }
 
-  createRelation(relation: Insertable<FamilyRelationTable>) {
-    return this.db.insertInto('family_relation').values(relation).returningAll().executeTakeFirstOrThrow();
+  /**
+  Takes the family's graph lock for the rest of the transaction. Everything that changes who is related
+  to whom (new relations, merges, a person becoming a pet) validates and writes under this lock, so two
+  requests cannot each check a graph the other is about to change (a third parent, a cycle).
+  */
+  private async lockGraph(trx: Kysely<DB>, familyId: string) {
+    await sql`select pg_advisory_xact_lock(hashtextextended(${`family-graph:${familyId}`}, 0))`.execute(trx);
+  }
+
+  /**
+  Writes relations (and the new person they belong to, if any) in one transaction, after `plan` has
+  checked them against the family's people and relations as read under the graph lock. `plan` throws to
+  refuse; it returns what to write.
+  */
+  async addRelationsLocked(
+    family: { id: string; clusterGroupId: string },
+    plan: (
+      people: Awaited<ReturnType<FamilyRepository['getFamilyPeople']>>,
+      relations: Awaited<ReturnType<FamilyRepository['getRelations']>>,
+    ) => {
+      newPerson: Omit<Insertable<FamilyPersonTable>, 'personGroupId' | 'familyId'> | null;
+      relations: Omit<Insertable<FamilyRelationTable>, 'familyId'>[];
+      /** Relations stored once with the smaller id first (spouse, sibling, friend). */
+      undirected: (type: string) => boolean;
+    },
+  ) {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockGraph(trx, family.id);
+      const [people, existing] = await Promise.all([
+        this.getFamilyPeople(family.id, trx),
+        this.getRelations(family.id, trx),
+      ]);
+      const { newPerson, relations, undirected } = plan(people, existing);
+      return this.insertRelationsIn(trx, family, newPerson, relations, undirected);
+    });
+  }
+
+  /**
+  Updates a person after `check` has looked at the family's people and relations under the graph lock
+  (a person turned into a pet must not keep relations a pet cannot have). `check` throws to refuse.
+  */
+  async updateFamilyPersonChecked(
+    familyId: string,
+    personGroupId: string,
+    values: Updateable<FamilyPersonTable>,
+    check: (
+      people: Awaited<ReturnType<FamilyRepository['getFamilyPeople']>>,
+      relations: Awaited<ReturnType<FamilyRepository['getRelations']>>,
+    ) => void,
+  ) {
+    return this.db.transaction().execute(async (trx) => {
+      await this.lockGraph(trx, familyId);
+      const [people, relations] = await Promise.all([this.getFamilyPeople(familyId, trx), this.getRelations(familyId, trx)]);
+      check(people, relations);
+      return trx
+        .updateTable('family_person')
+        .set(values)
+        .where('personGroupId', '=', personGroupId)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+    });
   }
 
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
@@ -1051,44 +1459,44 @@ export class FamilyRepository {
   deleted or hidden, with a preview to look at. Oldest first, a batch at a time.
   */
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.STRING, 10] })
-  getAssetsForPetScan(familyId: string, modelVersion: string, limit: number) {
-    return (
-      this.db
-        .selectFrom('asset')
-        .innerJoin('family_member', (join) =>
-          join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
-        )
-        // the same preview face detection uses (an edited one first), so boxes and thumbnails line up
-        .innerJoinLateral(
-          (eb) =>
+  getAssetsForPetScan(familyId: string, modelVersion: string, limit: number, exclude: string[] = []) {
+    return this.db
+      .selectFrom('asset')
+      .innerJoin('family_member', (join) =>
+        join.onRef('family_member.userId', '=', 'asset.ownerId').on('family_member.familyId', '=', familyId),
+      )
+      // the same preview face detection uses (an edited one first), so boxes and thumbnails line up
+      .innerJoinLateral(
+        (eb) =>
+          eb
+            .selectFrom('asset_file')
+            .select('asset_file.path')
+            .whereRef('asset_file.assetId', '=', 'asset.id')
+            .where('asset_file.type', '=', sql.lit(AssetFileType.Preview))
+            .orderBy('asset_file.isEdited', 'desc')
+            .limit(1)
+            .as('preview'),
+        (join) => join.onTrue(),
+      )
+      .select(['asset.id', 'asset.ownerId', 'preview.path as previewPath'])
+      .where('asset.deletedAt', 'is', null)
+      // never a member's Locked folder (private) or the hidden half of a live photo
+      .where('asset.visibility', 'in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)])
+      .where((eb) =>
+        eb.not(
+          eb.exists(
             eb
-              .selectFrom('asset_file')
-              .select('asset_file.path')
-              .whereRef('asset_file.assetId', '=', 'asset.id')
-              .where('asset_file.type', '=', sql.lit(AssetFileType.Preview))
-              .orderBy('asset_file.isEdited', 'desc')
-              .limit(1)
-              .as('preview'),
-          (join) => join.onTrue(),
-        )
-        .select(['asset.id', 'asset.ownerId', 'preview.path as previewPath'])
-        .where('asset.deletedAt', 'is', null)
-        // never a member's Locked folder (private) or the hidden half of a live photo
-        .where('asset.visibility', 'in', [sql.lit(AssetVisibility.Timeline), sql.lit(AssetVisibility.Archive)])
-        .where((eb) =>
-          eb.not(
-            eb.exists(
-              eb
-                .selectFrom('family_pet_scan')
-                .whereRef('family_pet_scan.assetId', '=', 'asset.id')
-                .where('family_pet_scan.modelVersion', '=', modelVersion),
-            ),
+              .selectFrom('family_pet_scan')
+              .whereRef('family_pet_scan.assetId', '=', 'asset.id')
+              .where('family_pet_scan.modelVersion', '=', modelVersion),
           ),
-        )
-        .orderBy('asset.createdAt', 'asc')
-        .limit(limit)
-        .execute()
-    );
+        ),
+      )
+      // photos this pass already failed on are left for the next pass; they are not marked as scanned
+      .$if(exclude.length > 0, (qb) => qb.where('asset.id', 'not in', exclude))
+      .orderBy('asset.createdAt', 'asc')
+      .limit(limit)
+      .execute();
   }
 
   /**
