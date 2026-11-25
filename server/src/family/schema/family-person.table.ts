@@ -59,6 +59,13 @@ export class FamilyPersonTable {
   @Column({ type: 'character varying', nullable: true })
   kind!: string | null;
 
+  /**
+  Hidden from the family's People lists (a stranger, say). Their name still shows on photos. Copied to
+  every member's own person row when it changes, so the website's People page hides them too.
+  */
+  @Column({ type: 'boolean', default: false })
+  isHidden!: Generated<boolean>;
+
   /** Simple formatting: paragraphs, **bold**, *italic* and [links](https://...). */
   @Column({ type: 'text', nullable: true })
   bio!: string | null;

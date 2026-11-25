@@ -330,6 +330,21 @@ where
   "person"."name" is distinct from excluded."name"
   or "person"."birthDate" is distinct from excluded."birthDate"
 
+-- FamilyRepository.mirrorHidden
+update "person"
+set
+  "isHidden" = $1
+where
+  "personGroupId" = $2
+  and "ownerId" in (
+    select
+      "userId"
+    from
+      "family_member"
+    where
+      "familyId" = $3
+  )
+
 -- FamilyRepository.getFamilyPeople
 select
   "family_person".*,

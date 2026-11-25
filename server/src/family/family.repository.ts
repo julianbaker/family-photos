@@ -463,6 +463,16 @@ export class FamilyRepository {
     `.execute(this.db);
   }
 
+  /** Hides (or shows) a person on every member's own People lists, the website's included. */
+  @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID, true] })
+  async mirrorHidden(familyId: string, personGroupId: string, isHidden: boolean): Promise<void> {
+    await sql`
+      update "person" set "isHidden" = ${isHidden}
+      where "personGroupId" = ${personGroupId}
+        and "ownerId" in (select "userId" from "family_member" where "familyId" = ${familyId})
+    `.execute(this.db);
+  }
+
   @GenerateSql({ params: [DummyValue.UUID] })
   getFamilyPeople(familyId: string) {
     return this.db

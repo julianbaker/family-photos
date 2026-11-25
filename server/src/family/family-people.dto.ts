@@ -41,6 +41,7 @@ const FamilyPersonResponseSchema = z
     linkedUserId: z.uuidv4().nullable().describe('The member account this person is'),
     faceCount: z.number().int().describe('Photos this person is recognised in'),
     kind: KindSchema,
+    isHidden: z.boolean().describe('Hidden from People lists; still named on photos'),
     updatedAt: z.string().describe('Changes whenever the person or their picture changes (use it to refresh a cached picture)'),
     relationToMe: RelationshipSchema.nullable().describe('How this person is related to the signed-in member'),
   })
@@ -62,6 +63,7 @@ const FamilyPersonUpdateSchema = z
     ...personFields,
     name: personFields.name.optional(),
     linkedUserId: z.uuidv4().nullable().optional().describe('Link to a member account ("this is me")'),
+    isHidden: z.boolean().optional().describe('Hide from People lists, for the whole family'),
   })
   .meta({ id: 'FamilyPersonUpdateDto' });
 

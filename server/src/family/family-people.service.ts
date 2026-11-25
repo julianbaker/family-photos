@@ -137,6 +137,7 @@ export class FamilyPeopleService extends BaseService {
         bio: dto.bio,
         kind: dto.kind,
         linkedUserId: dto.linkedUserId,
+        isHidden: dto.isHidden,
       }).filter(([, value]) => value !== undefined),
     );
     if (Object.keys(changes).length === 0) {
@@ -146,6 +147,9 @@ export class FamilyPeopleService extends BaseService {
     await this.familyRepository.updateFamilyPerson(id, { ...changes, updatedById: auth.user.id });
     if (dto.name !== undefined || dto.birthDate !== undefined) {
       await this.familyRepository.mirrorFamilyPeople(membership.familyId, id);
+    }
+    if (dto.isHidden !== undefined && dto.isHidden !== before.isHidden) {
+      await this.familyRepository.mirrorHidden(membership.familyId, id, dto.isHidden);
     }
 
     const previous = Object.fromEntries(
@@ -774,6 +778,7 @@ export class FamilyPeopleService extends BaseService {
       faceCount: Number(person.faceCount ?? 0),
       // set by hand, or a pet because pet recognition found its photos
       kind: person.kind === 'pet' || person.kind === 'person' ? person.kind : person.hasPetFaces ? 'pet' : 'person',
+      isHidden: person.isHidden,
       // the later of the family record and the picture: a new value means a new picture
       updatedAt: new Date(
         Math.max(new Date(person.updatedAt).getTime(), person.pictureAt ? new Date(person.pictureAt).getTime() : 0),

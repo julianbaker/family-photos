@@ -25217,6 +25217,10 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
             "type": "string"
           },
+          "isHidden": {
+            "description": "Hidden from People lists; still named on photos",
+            "type": "boolean"
+          },
           "kind": {
             "$ref": "#/components/schemas/FamilyPersonKind"
           },
@@ -25251,6 +25255,7 @@
           "faceCount",
           "gender",
           "id",
+          "isHidden",
           "kind",
           "linkedUserId",
           "name",
@@ -25286,6 +25291,10 @@
               }
             ],
             "nullable": true
+          },
+          "isHidden": {
+            "description": "Hide from People lists, for the whole family",
+            "type": "boolean"
           },
           "kind": {
             "allOf": [
