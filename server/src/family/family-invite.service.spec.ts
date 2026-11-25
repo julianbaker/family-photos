@@ -211,14 +211,30 @@ describe(FamilyInviteService.name, () => {
       };
       mocks.family.getInviteRequest.mockResolvedValue(request as never);
       mocks.user.get.mockResolvedValue(UserFactory.create({ name: 'Member' }) as never);
-      mocks.family.decideInviteRequest.mockImplementation(
-        (id, decision) =>
-          Promise.resolve({ ...request, ...decision, createdAt: new Date(), decidedAt: new Date() }) as never,
+      mocks.family.approveInviteRequest.mockImplementation(
+        (_id, _familyId, invite, token, decidedById) =>
+          Promise.resolve({
+            invite: { ...invite, id: newUuid() },
+            request: {
+              ...request,
+              status: 'approved',
+              decidedById,
+              inviteToken: token,
+              createdAt: new Date(),
+              decidedAt: new Date(),
+            },
+          }) as never,
       );
 
       const result = await sut.approveRequest(admin, request.id, options);
 
-      expect(mocks.family.createInvite).toHaveBeenCalledWith(expect.objectContaining({ personId }));
+      expect(mocks.family.approveInviteRequest).toHaveBeenCalledWith(
+        request.id,
+        request.familyId,
+        expect.objectContaining({ personId }),
+        expect.any(String),
+        (admin as { user: { id: string } }).user.id,
+      );
       expect(result).toEqual(expect.objectContaining({ personId, personName: 'Ann Smith', path: '/invite/new-token' }));
     });
 
@@ -236,8 +252,22 @@ describe(FamilyInviteService.name, () => {
       await expect(sut.approveRequest(admin, newUuid(), options)).rejects.toThrow(
         'Ann Smith is already linked to an account',
       );
+      expect(mocks.family.approveInviteRequest).not.toHaveBeenCalled();
+    });
+
+    it('approving a request someone else decided first leaves no invite and reports it', async () => {
+      asRole(FamilyRole.Admin);
+      mocks.family.getInviteRequest.mockResolvedValue({
+        id: newUuid(),
+        status: 'pending',
+        requestedById: newUuid(),
+        name: 'Ann Smith',
+        personId: null,
+      } as never);
+      mocks.family.approveInviteRequest.mockResolvedValue(void 0);
+
+      await expect(sut.approveRequest(admin, newUuid(), options)).rejects.toThrow('already decided');
       expect(mocks.family.createInvite).not.toHaveBeenCalled();
-      expect(mocks.family.decideInviteRequest).not.toHaveBeenCalled();
     });
 
     it('the preview says who the invite is for', async () => {

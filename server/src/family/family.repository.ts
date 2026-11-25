@@ -716,6 +716,76 @@ export class FamilyRepository {
       .executeTakeFirst();
   }
 
+  /**
+  Approves a pending request and creates its invite in one transaction, with the request locked: two
+  admins approving at once cannot both leave an invite behind, the loser gets nothing and no invite.
+  Returns nothing when the request is no longer pending.
+  */
+  async approveInviteRequest(
+    id: string,
+    familyId: string,
+    invite: Insertable<FamilyInviteTable>,
+    token: string,
+    decidedById: string,
+  ) {
+    return this.db.transaction().execute(async (trx) => {
+      const pending = await trx
+        .selectFrom('family_invite_request')
+        .select('id')
+        .where('id', '=', id)
+        .where('familyId', '=', familyId)
+        .where('status', '=', FamilyInviteRequestStatus.Pending)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!pending) {
+        return;
+      }
+      const created = await trx.insertInto('family_invite').values(invite).returningAll().executeTakeFirstOrThrow();
+      const request = await trx
+        .updateTable('family_invite_request')
+        .set({
+          status: FamilyInviteRequestStatus.Approved,
+          decidedById,
+          decidedAt: new Date(),
+          inviteId: created.id,
+          inviteToken: token,
+        })
+        .where('id', '=', id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      await trx
+        .insertInto('family_history')
+        .values([
+          {
+            familyId,
+            userId: decidedById,
+            action: FamilyHistoryAction.InviteCreate,
+            entityType: 'invite',
+            entityId: created.id,
+            before: null,
+            after: {
+              role: created.role,
+              maxUses: created.maxUses,
+              expiresAt: created.expiresAt,
+              label: created.label,
+              personId: created.personId,
+            },
+          },
+          {
+            familyId,
+            userId: decidedById,
+            action: FamilyHistoryAction.InviteRequestApprove,
+            entityType: 'invite-request',
+            entityId: id,
+            before: { status: FamilyInviteRequestStatus.Pending },
+            after: { status: FamilyInviteRequestStatus.Approved, inviteId: created.id },
+          },
+        ])
+        .execute();
+      return { invite: created, request };
+    });
+  }
+
   // app sign-in codes
 
   createAppLoginCode(code: Insertable<FamilyAppLoginCodeTable>) {
@@ -1335,7 +1405,7 @@ export class FamilyRepository {
   deleted or hidden, with a preview to look at. Oldest first, a batch at a time.
   */
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.STRING, 10] })
-  getAssetsForPetScan(familyId: string, modelVersion: string, limit: number) {
+  getAssetsForPetScan(familyId: string, modelVersion: string, limit: number, exclude: string[] = []) {
     return this.db
       .selectFrom('asset')
       .innerJoin('family_member', (join) =>
@@ -1368,6 +1438,8 @@ export class FamilyRepository {
           ),
         ),
       )
+      // photos this pass already failed on are left for the next pass; they are not marked as scanned
+      .$if(exclude.length > 0, (qb) => qb.where('asset.id', 'not in', exclude))
       .orderBy('asset.createdAt', 'asc')
       .limit(limit)
       .execute();
