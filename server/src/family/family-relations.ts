@@ -611,7 +611,7 @@ export class FamilyGraph {
       return true;
     }
     const parentsA = this.parents.get(a);
-    return !!parentsA && [...parentsA.keys()].some((parent) => this.parents.get(b)?.has(parent));
+    return !!parentsA && parentsA.keys().some((parent) => this.parents.get(b)?.has(parent));
   }
 
   areSpouses(a: string, b: string): boolean {

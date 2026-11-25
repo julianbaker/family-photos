@@ -1,4 +1,4 @@
-import { ageOnPartial, endOfPeriod, isPartialDate } from 'src/family/partial-date.js';
+import { ageOnPartial, endOfPeriod, isPartialDate, stockBirthDateChange } from 'src/family/partial-date.js';
 
 describe(isPartialDate.name, () => {
   it('accepts a year, a month or a real day', () => {

@@ -388,10 +388,10 @@ describe('pets', () => {
     expect(lonely.relationship('me', 'son')).toBeNull();
   });
 
-  describe('validation', () => {
-    const v = (personId: string, type: RelationType, relatedPersonId: string) =>
-      validateRelation(graph, { personId, relatedPersonId, type, qualifier: null, label: null });
+  const v = (personId: string, type: RelationType, relatedPersonId: string) =>
+    validateRelation(graph, { personId, relatedPersonId, type, qualifier: null, label: null });
 
+  describe('validation', () => {
     it('allows an owner, but not a third one', () => {
       expect(v('son', RelationType.Parent, 'rex')).toMatch('already has two owners');
       expect(v('son', RelationType.Parent, 'bo')).toBeNull();

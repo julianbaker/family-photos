@@ -30,7 +30,7 @@ import {
 } from 'src/family/family-relations.js';
 import { FamilyHistoryAction, FamilyRole } from 'src/family/family.enum.js';
 import { isFamilyEnabled } from 'src/family/family.flag.js';
-import { ageOnPartial, endOfPeriod, isPartialDate } from 'src/family/partial-date.js';
+import { ageOnPartial, endOfPeriod, isPartialDate, stockBirthDateChange } from 'src/family/partial-date.js';
 import { FamilyMembership } from 'src/family/family.repository.js';
 import { FamilyPersonTable } from 'src/family/schema/family-person.table.js';
 import { FamilyRelationTable } from 'src/family/schema/family-relation.table.js';
