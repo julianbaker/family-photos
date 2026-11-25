@@ -24699,7 +24699,7 @@
             "type": "string"
           },
           "wordmark": {
-            "description": "Text shown in place of a logo on the website",
+            "description": "Text shown in place of a logo on the website; empty when the server has no family features (stock branding)",
             "type": "string"
           }
         },

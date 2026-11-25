@@ -1848,7 +1848,7 @@ export type FamilyAssetPersonResponseDto = {
 export type FamilyBrandingResponseDto = {
     /** Where to get the iOS app, if configured */
     appUrl: string | null;
-    /** Text shown in place of a logo on the website */
+    /** Text shown in place of a logo on the website; empty when the server has no family features (stock branding) */
     wordmark: string;
 };
 export type FamilyHistoryResponseDto = {
