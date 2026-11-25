@@ -28,6 +28,12 @@ export type AccessRequest = {
   auth: AuthDto;
   permission: Permission;
   ids: Set<string> | string[];
+  /**
+  Family fork: also grant `AssetUpdate` on other members' photos. Off unless a caller asks for it, so
+  stacks, tags, asset metadata, jobs and memories stay owner-only; only the metadata edits the family
+  intends (see familyBeforeAssetUpdate) and face identification opt in.
+  */
+  familyGrant?: boolean;
 };
 
 export type AccessPersonRequest = {
@@ -37,7 +43,7 @@ export type AccessPersonRequest = {
 };
 
 type SharedLinkAccessRequest = { sharedLink: AuthSharedLink; permission: Permission; ids: Set<string> };
-type OtherAccessRequest = { auth: AuthDto; permission: Permission; ids: Set<string> };
+type OtherAccessRequest = { auth: AuthDto; permission: Permission; ids: Set<string>; familyGrant?: boolean };
 
 export const requireUploadAccess = (auth: AuthDto | null): AuthDto => {
   if (!auth || (auth.sharedLink && !auth.sharedLink.allowUpload)) {
@@ -98,7 +104,7 @@ export const checkPersonAccess = async (
 
 export const checkAccess = async (
   access: AccessRepository,
-  { ids, auth, permission }: AccessRequest,
+  { ids, auth, permission, familyGrant }: AccessRequest,
 ): Promise<Set<string>> => {
   const idSet = Array.isArray(ids) ? new Set(ids) : ids;
   if (idSet.size === 0) {
@@ -107,7 +113,7 @@ export const checkAccess = async (
 
   return auth.sharedLink
     ? checkSharedLinkAccess(access, { sharedLink: auth.sharedLink, permission, ids: idSet })
-    : checkOtherAccess(access, { auth, permission, ids: idSet });
+    : checkOtherAccess(access, { auth, permission, ids: idSet, familyGrant });
 };
 
 const checkSharedLinkAccess = async (
@@ -153,7 +159,7 @@ const checkSharedLinkAccess = async (
 };
 
 const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRequest): Promise<Set<string>> => {
-  const { auth, permission, ids } = request;
+  const { auth, permission, ids, familyGrant } = request;
 
   switch (permission) {
     // uses album id
@@ -185,7 +191,10 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
         auth.user.id,
         ids.difference(isOwner).difference(isAlbum),
       );
-      return isOwner.union(isAlbum).union(isPartner);
+      const granted = isOwner.union(isAlbum).union(isPartner);
+      // family fork: a Viewer may not share other members' photos
+      const blocked = await access.family.checkAssetShareBlocked(auth.user.id, granted.difference(isOwner));
+      return granted.difference(blocked);
     }
 
     case Permission.AssetFileDownload: {
@@ -213,11 +222,10 @@ const checkOtherAccess = async (access: AccessRepository, request: OtherAccessRe
     }
 
     case Permission.AssetUpdate: {
-      return withFamilyAccess(
-        await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission),
-        ids,
-        (rest) => access.family.checkAssetEditAccess(auth.user.id, rest),
-      );
+      const owned = await access.asset.checkOwnerAccess(auth.user.id, ids, auth.session?.hasElevatedPermission);
+      return familyGrant
+        ? withFamilyAccess(owned, ids, (rest) => access.family.checkAssetEditAccess(auth.user.id, rest))
+        : owned;
     }
 
     case Permission.AssetDelete: {

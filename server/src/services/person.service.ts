@@ -796,7 +796,7 @@ export class PersonService extends BaseService {
   // TODO return a asset face response
   async createFace(auth: AuthDto, dto: AssetFaceCreateDto): Promise<void> {
     await Promise.all([
-      this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [dto.assetId] }),
+      this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [dto.assetId], familyGrant: true }),
       this.requirePersonAccess({
         auth,
         permission: Permission.PersonRead,

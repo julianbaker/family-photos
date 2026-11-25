@@ -85,7 +85,7 @@ export class AssetService extends BaseService {
   }
 
   async update(auth: AuthDto, id: string, dto: UpdateAssetDto): Promise<AssetResponseDto> {
-    await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id] });
+    await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids: [id], familyGrant: true });
     // family fork: personal fields stay with the owner; family edits are recorded in the history
     await familyBeforeAssetUpdate({ access: this.accessRepository, family: this.familyRepository }, auth, [id], dto);
 
@@ -140,7 +140,7 @@ export class AssetService extends BaseService {
       dateTimeRelative,
       timeZone,
     } = dto;
-    await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids });
+    await this.requireAccess({ auth, permission: Permission.AssetUpdate, ids, familyGrant: true });
     // family fork: personal fields stay with the owner; family edits are recorded in the history
     await familyBeforeAssetUpdate({ access: this.accessRepository, family: this.familyRepository }, auth, ids, dto);
 
