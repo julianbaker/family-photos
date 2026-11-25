@@ -39,3 +39,21 @@ describe(ageOnPartial.name, () => {
     expect(ageOnPartial('1938-03-14', '1930-01-01')).toBeNull();
   });
 });
+
+describe(stockBirthDateChange.name, () => {
+  it('ignores a null from a stock screen when the family date is partial', () => {
+    expect(stockBirthDateChange(null, '1938')).toBeUndefined();
+    expect(stockBirthDateChange(null, '1938-03')).toBeUndefined();
+  });
+
+  it('lets a stock screen clear a full date', () => {
+    expect(stockBirthDateChange(null, '1938-03-14')).toBeNull();
+  });
+
+  it('sets an exact day, and ignores an unchanged one', () => {
+    expect(stockBirthDateChange('1938-03-14', '1938')).toBe('1938-03-14');
+    expect(stockBirthDateChange('1938-03-14', null)).toBe('1938-03-14');
+    expect(stockBirthDateChange('1938-03-14', '1938-03-14')).toBeUndefined();
+    expect(stockBirthDateChange(null, null)).toBeUndefined();
+  });
+});

@@ -183,9 +183,12 @@ export class FamilyPeopleService extends BaseService {
     if (values.name !== undefined && values.name !== before.name) {
       changes.name = values.name;
     }
-    if (values.birthDate !== undefined && toDateString(values.birthDate) !== before.birthDate) {
+    if (values.birthDate !== undefined) {
       // the stock screens set an exact day
-      changes.birthDate = toDateString(values.birthDate);
+      const birthDate = stockBirthDateChange(toDateString(values.birthDate), before.birthDate);
+      if (birthDate !== undefined) {
+        changes.birthDate = birthDate;
+      }
     }
     if (Object.keys(changes).length === 0) {
       return;
