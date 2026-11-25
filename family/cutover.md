@@ -18,7 +18,7 @@ details (hostnames, accounts, expected counts) belong in your own notes, not her
    `immich-admin family-setup` (and `family-add-member` for `MEMBERS`), and checks that every photo,
    name, birth date and face assignment survived. It must end with `Rehearsal passed`. Keep its report:
    the real switch must print the same numbers.
-3. **Universal Links** (only if the iPhone app should open invite links): the server answers
+3. **Universal Links** (only if the iPhone app should open invite links and one-time sign-in links): the server answers
    `/.well-known/apple-app-site-association` once `IMMICH_FAMILY_IOS_APP_ID` is set. Apple's CDN fetches
    that file from anywhere in the world, so exempt that one path from geo-blocking and bot filtering in
    the reverse proxy.

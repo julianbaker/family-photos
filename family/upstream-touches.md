@@ -69,3 +69,7 @@ Every upstream file the fork changes, and why. Check these first when merging an
 | `server/src/services/person.service.ts` | `handlePersonCleanup` skips person groups that are family people (`FamilyPeopleService.getPeopleToKeep`) | the nightly cleanup deletes every person without faces, which deleted the family's ancestors and relatives added by name, and their relations with them |
 | `server/src/services/asset.service.ts`, `server/src/services/person.service.ts` | `familyGrant: true` on the `AssetUpdate` check in `update`, `updateAll` and `createFace` | the only stock `AssetUpdate` checks that take the family grant |
 | `server/src/services/shared-link.service.ts`, `server/src/services/auth.service.ts` | `familyRefuseSharedLinks()` in `create`, `addAssets`, and before a share key or slug is validated | public sharing is off in a family archive; photos leave by download (owner 2026-11-25) |
+| `server/src/schema/index.ts` | registers `FamilyAppLoginCodeTable` (tables list + `DB` interface) | one-time codes that open the iOS app signed in |
+| `server/src/schema/migrations/ORDER` | appends `1795600000000-FamilyAppLoginCodes` and `1795610000000-FamilyInvitePerson` | sign-in codes table; invites tied to a family person |
+| `server/src/services/index.ts`, `server/src/controllers/index.ts` | registers `FamilyAppLoginService`, `FamilyAppLoginController` | `POST /family/app-login-codes` and `/redeem` |
+| `web/src/routes/app-login/` (new) | public page a one-time sign-in link opens in a browser | offers the app through its `sibred://` link; fork-only |
