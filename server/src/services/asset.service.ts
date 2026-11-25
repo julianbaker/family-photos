@@ -37,7 +37,7 @@ import {
   Permission,
   QueueName,
 } from 'src/enum.js';
-import { familyBeforeAssetUpdate } from 'src/family/family-owner-fields.js';
+import { familyBeforeAssetDelete, familyBeforeAssetUpdate } from 'src/family/family-owner-fields.js';
 import { BaseService } from 'src/services/base.service.js';
 import type { JobItem, JobOf } from 'src/types.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
@@ -380,6 +380,8 @@ export class AssetService extends BaseService {
     const { ids, force } = dto;
 
     await this.requireAccess({ auth, permission: Permission.AssetDelete, ids });
+    // family fork: only the owner can delete a photo for good
+    await familyBeforeAssetDelete({ access: this.accessRepository }, auth, ids, force);
     await this.assetRepository.updateAll(ids, {
       deletedAt: new Date(),
       status: force ? AssetStatus.Deleted : AssetStatus.Trashed,

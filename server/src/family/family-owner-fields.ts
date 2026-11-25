@@ -73,3 +73,25 @@ export const familyBeforeAssetUpdate = async (
     })),
   );
 };
+
+/**
+Runs before photos are deleted. A family admin may trash another member's photo, but permanent deletion
+skips the owner's trash and so can't be undone: it stays with the owner.
+*/
+export const familyBeforeAssetDelete = async (
+  { access }: Pick<Deps, 'access'>,
+  auth: AuthDto,
+  ids: string[],
+  force: boolean | undefined,
+): Promise<void> => {
+  if (!isFamilyEnabled() || !force || ids.length === 0) {
+    return;
+  }
+
+  const owned = await access.asset.checkOwnerAccess(auth.user.id, new Set(ids), auth.session?.hasElevatedPermission);
+  if (ids.some((id) => !owned.has(id))) {
+    throw new BadRequestException(
+      "Only the owner can permanently delete a photo; move it to the owner's trash instead",
+    );
+  }
+};
