@@ -416,3 +416,46 @@ describe('pets', () => {
     });
   });
 });
+
+describe('half-siblings', () => {
+  // Bea shares her father with Alex and her mother with Chris; Alex and Chris are not related
+  const halfPeople = ['bea', 'alex', 'chris', 'alexKid', 'chrisKid', 'dad', 'mum', 'twin'].map((id) => ({
+    id,
+    gender: null as Gender,
+  }));
+  const half = (a: string, b: string) => rel(a, RelationType.Sibling, b, RelationQualifier.Half);
+  const graph = new FamilyGraph(halfPeople, [
+    half('alex', 'bea'),
+    half('bea', 'chris'),
+    parent('alex', 'alexKid'),
+    parent('chris', 'chrisKid'),
+  ]);
+
+  it('keeps each half-sibling link between its own two people', () => {
+    expect(graph.relationship('bea', 'alex')?.key).toBe('half-sibling');
+    expect(graph.relationship('bea', 'chris')?.key).toBe('half-sibling');
+    expect(graph.relationship('alex', 'chris')).toBeNull();
+    expect(graph.relationship('alexKid', 'chrisKid')).toBeNull();
+  });
+
+  it('still relates a half-sibling pair through its children', () => {
+    expect(graph.relationship('bea', 'alexKid')?.key).toBe('niece-nephew');
+  });
+
+  it('still chains full siblings into one group', () => {
+    const full = new FamilyGraph(halfPeople, [
+      rel('alex', RelationType.Sibling, 'bea'),
+      rel('bea', RelationType.Sibling, 'chris'),
+    ]);
+    expect(full.relationship('alex', 'chris')?.key).toBe('sibling');
+  });
+
+  it('lets a known common parent support the relationship', () => {
+    const shared = new FamilyGraph(halfPeople, [
+      parent('dad', 'alex'),
+      parent('dad', 'bea'),
+      half('alex', 'bea'),
+    ]);
+    expect(shared.relationship('alex', 'bea')?.key).toBe('half-sibling');
+  });
+});

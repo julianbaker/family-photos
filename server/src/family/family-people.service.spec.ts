@@ -106,4 +106,21 @@ describe(FamilyPeopleService.name, () => {
       expect(mocks.family.addHistory).not.toHaveBeenCalled();
     });
   });
+
+  describe('getPeopleToKeep', () => {
+    it('protects persisted family people whether or not the feature is on (restart with the flag off)', async () => {
+      const ancestor = newUuid();
+      mocks.family.getFamilyPersonGroupIds.mockResolvedValue(new Set([ancestor]));
+
+      // enable -> disable -> cleanup -> re-enable: the lookup never depends on the flag
+      for (const flag of ['true', undefined, 'true']) {
+        if (flag) {
+          process.env.IMMICH_FAMILY_ENABLED = flag;
+        } else {
+          delete process.env.IMMICH_FAMILY_ENABLED;
+        }
+        await expect(sut.getPeopleToKeep([ancestor, newUuid()])).resolves.toEqual(new Set([ancestor]));
+      }
+    });
+  });
 });

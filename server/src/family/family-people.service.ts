@@ -29,7 +29,7 @@ import {
   validateRelation,
 } from 'src/family/family-relations.js';
 import { FamilyHistoryAction, FamilyRole } from 'src/family/family.enum.js';
-import { isFamilyEnabled } from 'src/family/family.flag.js';
+import { familyFlagWarning, isFamilyEnabled } from 'src/family/family.flag.js';
 import { ageOnPartial, endOfPeriod, isPartialDate, stockBirthDateChange } from 'src/family/partial-date.js';
 import { FamilyMembership } from 'src/family/family.repository.js';
 import { FamilyPersonTable } from 'src/family/schema/family-person.table.js';
@@ -325,12 +325,11 @@ export class FamilyPeopleService extends BaseService {
   /**
   Called by the stock person cleanup, which deletes every person without faces. Family people
   without photos (ancestors, relatives added by name) are kept on purpose: deleting them would also
-  delete their relations. Returns the person groups the cleanup must leave alone.
+  delete their relations. Returns the person groups the cleanup must leave alone. Deliberately not
+  tied to the feature flag: a restart with the family feature off must not let the stock cleanup
+  delete persisted family people, since their relations would go with them for good.
   */
   async getPeopleToKeep(personGroupIds: string[]): Promise<Set<string>> {
-    if (!isFamilyEnabled()) {
-      return new Set();
-    }
     return this.familyRepository.getFamilyPersonGroupIds(personGroupIds);
   }
 
@@ -715,6 +714,10 @@ export class FamilyPeopleService extends BaseService {
 
   @OnEvent({ name: 'AppBootstrap', workers: [ImmichWorker.Api] })
   async onBootstrap() {
+    const warning = familyFlagWarning();
+    if (warning) {
+      this.logger.warn(warning);
+    }
     if (!isFamilyEnabled()) {
       return;
     }

@@ -33,7 +33,7 @@ details (hostnames, accounts, expected counts) belong in your own notes, not her
    Redis and machine-learning services exactly as they are (machine learning stays the stock v3.4.2 image).
 4. **Edit `.env`:**
    ```
-   IMMICH_FAMILY_ENABLED=true
+   # the family features are always on; IMMICH_FAMILY_ENABLED is ignored (a startup warning says so if set to false)
    # optional
    IMMICH_FAMILY_IOS_APP_ID=<team id>.<bundle id>
    IMMICH_FAMILY_APP_URL=<TestFlight public link>

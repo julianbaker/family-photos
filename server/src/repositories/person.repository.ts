@@ -277,6 +277,16 @@ export class PersonRepository {
           ),
         ),
       )
+      // family fork: a family person's group goes only with its family record (cascade deletes relations)
+      .where(({ not, exists, selectFrom }) =>
+        not(
+          exists(
+            selectFrom('family_person')
+              .whereRef('family_person.personGroupId', '=', 'person_group.id')
+              .select('family_person.personGroupId'),
+          ),
+        ),
+      )
       .executeTakeFirst();
 
     return Number(result.numDeletedRows);

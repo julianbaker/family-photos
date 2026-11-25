@@ -61,6 +61,14 @@ where
     where
       "person"."personGroupId" = "person_group"."id"
   )
+  and not exists (
+    select
+      "family_person"."personGroupId"
+    from
+      "family_person"
+    where
+      "family_person"."personGroupId" = "person_group"."id"
+  )
 
 -- PersonRepository.deleteOrphanedClusterGroups
 delete from "cluster_group"

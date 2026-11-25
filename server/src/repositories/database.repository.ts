@@ -20,7 +20,6 @@ import {
 } from 'src/constants.js';
 import { GenerateSql } from 'src/decorators.js';
 import { DatabaseExtension, DatabaseLock, VectorIndex } from 'src/enum.js';
-import { isFamilyEnabled } from 'src/family/family.flag.js';
 import { ConfigRepository } from 'src/repositories/config.repository.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
 import { immich_uuid_v7 } from 'src/schema/functions.js';
@@ -507,7 +506,7 @@ export class DatabaseRepository {
       db: this.db,
       migrationLockTableName: 'kysely_migrations_lock',
       // family fork: upstream releases can bring migrations that sort before the fork's, already applied ones
-      allowUnorderedMigrations: this.configRepository.isDev() || isFamilyEnabled(),
+      allowUnorderedMigrations: true,
       migrationTableName: 'kysely_migrations',
       provider: new FileMigrationProvider({
         fs: { readdir },

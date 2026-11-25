@@ -175,8 +175,8 @@ export class FamilyGraph {
   private godparents = new Map<string, Set<string>>();
   private friends = new Map<string, Set<string>>();
   private custom: StoredRelation[] = [];
-  /** explicit sibling groups share a virtual parent, so their families link up even without parents */
-  private virtualParent = new Map<string, string>();
+  /** explicit full-sibling groups share a virtual parent, and each half-sibling pair has its own, so families link up even without parents */
+  private virtualParent = new Map<string, string[]>();
   private ancestorCache = new Map<string, Map<string, number>>();
   /** pet -> its owners (people recorded as its parents) */
   private petOwners = new Map<string, Set<string>>();
@@ -233,7 +233,12 @@ export class FamilyGraph {
     this.buildVirtualParents();
   }
 
-  /** Union explicit (non-step) siblings into groups; each group gets one virtual parent. */
+  /**
+  Union explicit full (and adopted) siblings into groups; each group gets one virtual parent. Half and
+  step links are not unioned: a half-sibling link says only that these two share one parent, so chaining
+  them (Alex - Bea - Chris, where Alex shares Bea's father and Chris her mother) would make unrelated
+  Alex and Chris siblings. A half link gets a virtual parent of its own, shared by just the pair.
+  */
   private buildVirtualParents() {
     const root = new Map<string, string>();
     const find = (id: string): string => {
@@ -245,27 +250,33 @@ export class FamilyGraph {
       root.set(id, top);
       return top;
     };
+    const inGroup = new Set<string>();
     for (const [a, others] of this.siblings) {
       for (const [b, qualifier] of others) {
-        if (qualifier !== RelationQualifier.Step) {
+        if (qualifier !== RelationQualifier.Step && qualifier !== RelationQualifier.Half) {
           root.set(find(a), find(b));
+          inGroup.add(a);
+          inGroup.add(b);
         }
       }
     }
-    for (const id of this.siblings.keys()) {
-      const top = find(id);
-      if (top !== id || this.siblings.keys().some((other) => other !== id && find(other) === top)) {
-        this.virtualParent.set(id, `virtual:${top}`);
+    for (const id of inGroup) {
+      this.virtualParent.set(id, [`virtual:${find(id)}`]);
+    }
+    for (const [a, others] of this.siblings) {
+      for (const [b, qualifier] of others) {
+        if (qualifier === RelationQualifier.Half && a < b) {
+          const pair = `virtual-half:${a}:${b}`;
+          this.virtualParent.set(a, [...(this.virtualParent.get(a) ?? []), pair]);
+          this.virtualParent.set(b, [...(this.virtualParent.get(b) ?? []), pair]);
+        }
       }
     }
   }
 
   private parentsOf(id: string): string[] {
     const result = [...(this.parents.get(id)?.keys() ?? [])];
-    const virtual = this.virtualParent.get(id);
-    if (virtual) {
-      result.push(virtual);
-    }
+    result.push(...(this.virtualParent.get(id) ?? []));
     return result;
   }
 
