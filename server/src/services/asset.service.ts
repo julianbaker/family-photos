@@ -37,7 +37,7 @@ import {
   Permission,
   QueueName,
 } from 'src/enum.js';
-import { familyBeforeAssetDelete, familyBeforeAssetUpdate } from 'src/family/family-owner-fields.js';
+import { familyBeforeAssetUpdate, familySplitAssetDelete } from 'src/family/family-owner-fields.js';
 import { BaseService } from 'src/services/base.service.js';
 import type { JobItem, JobOf } from 'src/types.js';
 import { requireElevatedPermission } from 'src/utils/access.js';
@@ -380,16 +380,17 @@ export class AssetService extends BaseService {
     const { ids, force } = dto;
 
     await this.requireAccess({ auth, permission: Permission.AssetDelete, ids });
-    // family fork: only the owner can delete a photo for good
-    await familyBeforeAssetDelete({ access: this.accessRepository }, auth, ids, force);
-    await this.assetRepository.updateAll(ids, {
-      deletedAt: new Date(),
-      status: force ? AssetStatus.Deleted : AssetStatus.Trashed,
-    });
-    await this.eventRepository.emit(force ? 'AssetDeleteAll' : 'AssetTrashAll', {
-      assetIds: ids,
-      userId: auth.user.id,
-    });
+    // family fork: only the owner deletes a photo for good; anyone else's goes to the owner's trash
+    const { forever, trash } = await familySplitAssetDelete({ access: this.accessRepository }, auth, ids, force);
+    if (forever.length > 0) {
+      await this.assetRepository.updateAll(forever, { deletedAt: new Date(), status: AssetStatus.Deleted });
+      await this.eventRepository.emit('AssetDeleteAll', { assetIds: forever, userId: auth.user.id });
+    }
+    if (trash.length === 0) {
+      return;
+    }
+    await this.assetRepository.updateAll(trash, { deletedAt: new Date(), status: AssetStatus.Trashed });
+    await this.eventRepository.emit('AssetTrashAll', { assetIds: trash, userId: auth.user.id });
   }
 
   async getMetadata(auth: AuthDto, id: string): Promise<AssetMetadataResponseDto[]> {

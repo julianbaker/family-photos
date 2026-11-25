@@ -366,10 +366,10 @@ describe('pets', () => {
     }
   });
 
-  it('shows its owners and their family from a pet’s page', () => {
-    expect(graph.relationship('bo', 'me')).toEqual({ key: 'owner', label: 'owner' });
-    expect(graph.relationship('bo', 'son')).toEqual({ key: 'owner-relative', label: "owner's son" });
-    expect(graph.relationship('rex', 'mum')).toEqual({ key: 'owner-relative', label: "owner's daughter" });
+  it('shows its companions and their family from a pet’s page', () => {
+    expect(graph.relationship('bo', 'me')).toEqual({ key: 'owner', label: 'companion' });
+    expect(graph.relationship('bo', 'son')).toEqual({ key: 'owner-relative', label: "companion's son" });
+    expect(graph.relationship('rex', 'mum')).toEqual({ key: 'owner-relative', label: "companion's daughter" });
   });
 
   it('only counts a pet through close family: not a great-grandparent’s dog', () => {
@@ -393,26 +393,26 @@ describe('pets', () => {
 
   describe('validation', () => {
     it('allows an owner, but not a third one', () => {
-      expect(v('son', RelationType.Parent, 'rex')).toMatch('already has two owners');
+      expect(v('son', RelationType.Parent, 'rex')).toMatch('already has two companions');
       expect(v('son', RelationType.Parent, 'bo')).toBeNull();
     });
 
     it('refuses anything but ownership for a pet', () => {
       for (const type of [RelationType.Godparent, RelationType.Spouse, RelationType.Sibling, RelationType.Friend]) {
-        expect(v('me', type, 'bo')).toMatch('only have owners');
-        expect(v('bo', type, 'me')).toMatch('only have owners');
+        expect(v('me', type, 'bo')).toMatch('only have companions');
+        expect(v('bo', type, 'me')).toMatch('only have companions');
       }
     });
 
     it('refuses a pet as a godparent, partner or sibling of another pet', () => {
-      expect(v('rex', RelationType.Godparent, 'bo')).toMatch('only have owners');
-      expect(v('rex', RelationType.Spouse, 'bo')).toMatch('only have owners');
-      expect(v('rex', RelationType.Sibling, 'bo')).toMatch('only have owners');
+      expect(v('rex', RelationType.Godparent, 'bo')).toMatch('only have companions');
+      expect(v('rex', RelationType.Spouse, 'bo')).toMatch('only have companions');
+      expect(v('rex', RelationType.Sibling, 'bo')).toMatch('only have companions');
     });
 
     it('refuses a pet as a parent', () => {
       expect(v('bo', RelationType.Parent, 'me')).toMatch('cannot be anyone');
-      expect(v('bo', RelationType.Parent, 'rex')).toMatch('cannot own a pet');
+      expect(v('bo', RelationType.Parent, 'rex')).toMatch('cannot be a companion to a pet');
     });
   });
 });

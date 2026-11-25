@@ -451,10 +451,10 @@ export class FamilyPeopleService extends BaseService {
       return !!person && (person.kind === 'pet' || (person.kind === null && !!person.hasPetFaces));
     };
     if (dto.kind === 'owner' && !isPet(id)) {
-      throw new BadRequestException('Only a pet has owners');
+      throw new BadRequestException('Only a pet has companions');
     }
     if (dto.kind !== 'owner' && isPet(id)) {
-      throw new BadRequestException("A pet's relatives are its owners");
+      throw new BadRequestException("A pet's people are its companions");
     }
 
     const other = dto.existingId ?? 'NEW';

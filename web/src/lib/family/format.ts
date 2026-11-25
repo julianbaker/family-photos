@@ -46,8 +46,8 @@ export const RELATIVE_GROUPS: Array<{ title: string; match: (key: string) => boo
   { title: 'In-laws', match: (key) => key.includes('in-law') || key.endsWith('-spouse') },
   { title: 'Godparents and godchildren', match: (key) => key === 'godparent' || key === 'godchild' },
   { title: 'Pets', match: (key) => key === 'pet' },
-  { title: 'Owners', match: (key) => key === 'owner' },
-  { title: 'Owners’ family', match: (key) => key === 'owner-relative' },
+  { title: 'Companions', match: (key) => key === 'owner' },
+  { title: 'Companions’ family', match: (key) => key === 'owner-relative' },
   { title: 'Friends and others', match: (key) => key === 'friend' || key === 'custom' },
 ];
 

@@ -520,17 +520,23 @@ describe(AssetService.name, () => {
       });
     });
 
-    it('should refuse to force delete a photo the caller does not own', async () => {
+    it("should send a force delete of someone else's photo to the owner's trash", async () => {
       process.env.IMMICH_FAMILY_ENABLED = 'true';
       try {
         mocks.access.asset.checkOwnerAccess.mockResolvedValueOnce(new Set(['asset1']));
         mocks.access.family.checkAssetDeleteAccess.mockResolvedValue(new Set(['asset2']));
         mocks.access.asset.checkOwnerAccess.mockResolvedValueOnce(new Set(['asset1']));
 
-        await expect(sut.deleteAll(authStub.user1, { ids: ['asset1', 'asset2'], force: true })).rejects.toBeInstanceOf(
-          BadRequestException,
-        );
-        expect(mocks.asset.updateAll).not.toHaveBeenCalled();
+        await sut.deleteAll(authStub.user1, { ids: ['asset1', 'asset2'], force: true });
+
+        expect(mocks.asset.updateAll).toHaveBeenCalledWith(['asset1'], {
+          deletedAt: expect.any(Date),
+          status: AssetStatus.Deleted,
+        });
+        expect(mocks.asset.updateAll).toHaveBeenCalledWith(['asset2'], {
+          deletedAt: expect.any(Date),
+          status: AssetStatus.Trashed,
+        });
       } finally {
         delete process.env.IMMICH_FAMILY_ENABLED;
       }

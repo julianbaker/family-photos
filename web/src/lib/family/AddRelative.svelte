@@ -62,7 +62,7 @@
 </script>
 
 <div class="flex flex-col gap-3 rounded-xl border p-4 text-start dark:border-gray-700">
-  <Text fontWeight="semi-bold">Add {person.name || 'their'}'s {forIsPet ? 'owner' : KIND_LABEL[treeKind]}</Text>
+  <Text fontWeight="semi-bold">Add {person.name || 'their'}'s {forIsPet ? 'companion' : KIND_LABEL[treeKind]}</Text>
   <PersonPicker
     {people}
     {exclude}

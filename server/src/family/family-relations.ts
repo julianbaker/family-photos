@@ -577,7 +577,8 @@ export class FamilyGraph {
   private ownerSideRelationship(pet: string, to: string): Relationship | null {
     const owners = [...(this.petOwners.get(pet) ?? [])];
     if (owners.includes(to)) {
-      return { key: 'owner', label: 'owner' };
+      // a pet's people are its companions (the relation key stays 'owner')
+      return { key: 'owner', label: 'companion' };
     }
     for (const owner of owners) {
       const relationship = this.relationship(owner, to);
@@ -585,9 +586,12 @@ export class FamilyGraph {
       if (relationship && relationship.key !== 'self' && (relationship.key === 'pet' || CLOSE_FAMILY.has(relationship.key))) {
         // another pet: "owner's pet" when it's the owner's own, else through the owner ("owner's parents' pet")
         if (relationship.key === 'pet') {
-          return { key: 'pet', label: relationship.label === 'pet' ? "owner's pet" : `owner's ${relationship.label}` };
+          return {
+            key: 'pet',
+            label: relationship.label === 'pet' ? "companion's pet" : `companion's ${relationship.label}`,
+          };
         }
-        return { key: 'owner-relative', label: `owner's ${relationship.label}` };
+        return { key: 'owner-relative', label: `companion's ${relationship.label}` };
       }
     }
     return null;
@@ -655,13 +659,13 @@ export const validateRelation = (
   // (godparent, partner, sibling, friend...) makes sense for a pet, and the graph ignores it anyway.
   if (graph.isPet(relatedPersonId) || graph.isPet(personId)) {
     if (type !== RelationType.Parent) {
-      return `A pet can only have owners, not a ${type} relation`;
+      return `A pet can only have companions, not a ${type} relation`;
     }
     if (graph.isPet(personId)) {
-      return graph.isPet(relatedPersonId) ? 'A pet cannot own a pet' : 'A pet cannot be anyone\'s parent';
+      return graph.isPet(relatedPersonId) ? 'A pet cannot be a companion to a pet' : 'A pet cannot be anyone\'s parent';
     }
     if (graph.ownerCount(relatedPersonId) >= 2) {
-      return 'This pet already has two owners';
+      return 'This pet already has two companions';
     }
     return null;
   }

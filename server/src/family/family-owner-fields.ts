@@ -78,22 +78,22 @@ export const familyBeforeAssetUpdate = async (
 Runs before photos are deleted. A family admin may trash another member's photo, but permanent deletion
 skips the owner's trash and so can't be undone: it stays with the owner.
 */
-export const familyBeforeAssetDelete = async (
+export const familySplitAssetDelete = async (
   { access }: Pick<Deps, 'access'>,
   auth: AuthDto,
   ids: string[],
   force: boolean | undefined,
-): Promise<void> => {
-  if (!isFamilyEnabled() || !force || ids.length === 0) {
-    return;
+): Promise<{ forever: string[]; trash: string[] }> => {
+  if (!force) {
+    return { forever: [], trash: ids };
   }
-
+  if (!isFamilyEnabled() || ids.length === 0) {
+    return { forever: ids, trash: [] };
+  }
+  // only the owner deletes a photo for good; anyone else's permanent delete (an admin's) goes to the
+  // owner's trash instead, so the owner can still restore it (owner decision 2026-11-25)
   const owned = await access.asset.checkOwnerAccess(auth.user.id, new Set(ids), auth.session?.hasElevatedPermission);
-  if (ids.some((id) => !owned.has(id))) {
-    throw new BadRequestException(
-      "Only the owner can permanently delete a photo; move it to the owner's trash instead",
-    );
-  }
+  return { forever: ids.filter((id) => owned.has(id)), trash: ids.filter((id) => !owned.has(id)) };
 };
 
 /**

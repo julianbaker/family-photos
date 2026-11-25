@@ -40,7 +40,7 @@ export const companion = (
 /**
 Records the new relative in one request: the server checks the family's rules first and writes the
 new person (a new father is male, a new mother female) and the relations together, so a refused
-relation never leaves a stray person behind. For a pet, a "parent" is an owner. Returns the relative's id.
+relation never leaves a stray person behind. For a pet, a "parent" is a companion (the API value "owner"). Returns the relative's id.
 */
 export const addRelative = async ({
   kind,

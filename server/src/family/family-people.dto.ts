@@ -107,7 +107,7 @@ const RelativeKindSchema = z
     'godparent',
     'godchild',
   ])
-  .describe('How the relative is related to the person: their father, partner, pet, godmother; or, for a pet, its owner')
+  .describe('How the relative is related to the person: their father, partner, pet, godmother; or, for a pet, a companion (the value "owner")')
   .meta({ id: 'FamilyRelativeKind' });
 
 const FamilyRelativeCreateSchema = z
