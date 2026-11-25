@@ -295,6 +295,12 @@ describe(validateRelation.name, () => {
     expect(check('me', RelationType.Spouse, 'gran')).toMatch('ancestor');
   });
 
+  it('refuses partners who are siblings, and siblings who are partners', () => {
+    expect(check('me', RelationType.Spouse, 'sister')).toMatch('siblings');
+    expect(check('me', RelationType.Spouse, 'halfBrother')).toMatch('siblings');
+    expect(check('wife', RelationType.Sibling, 'me')).toMatch('partners');
+  });
+
   it('refuses a self relation and a custom relation without a label', () => {
     expect(check('me', RelationType.Friend, 'me')).toMatch('themselves');
     expect(check('me', RelationType.Custom, 'friend')).toMatch('needs a label');
@@ -380,5 +386,33 @@ describe('pets', () => {
     const lonely = new FamilyGraph(petPeople, [rel('me', 'bo'), rel('gran', 'bo'), rel('bo', 'son', RelationType.Sibling)]);
     expect(lonely.relationship('me', 'gran')).toBeNull();
     expect(lonely.relationship('me', 'son')).toBeNull();
+  });
+
+  const v = (personId: string, type: RelationType, relatedPersonId: string) =>
+    validateRelation(graph, { personId, relatedPersonId, type, qualifier: null, label: null });
+
+  describe('validation', () => {
+    it('allows an owner, but not a third one', () => {
+      expect(v('son', RelationType.Parent, 'rex')).toMatch('already has two owners');
+      expect(v('son', RelationType.Parent, 'bo')).toBeNull();
+    });
+
+    it('refuses anything but ownership for a pet', () => {
+      for (const type of [RelationType.Godparent, RelationType.Spouse, RelationType.Sibling, RelationType.Friend]) {
+        expect(v('me', type, 'bo')).toMatch('only have owners');
+        expect(v('bo', type, 'me')).toMatch('only have owners');
+      }
+    });
+
+    it('refuses a pet as a godparent, partner or sibling of another pet', () => {
+      expect(v('rex', RelationType.Godparent, 'bo')).toMatch('only have owners');
+      expect(v('rex', RelationType.Spouse, 'bo')).toMatch('only have owners');
+      expect(v('rex', RelationType.Sibling, 'bo')).toMatch('only have owners');
+    });
+
+    it('refuses a pet as a parent', () => {
+      expect(v('bo', RelationType.Parent, 'me')).toMatch('cannot be anyone');
+      expect(v('bo', RelationType.Parent, 'rex')).toMatch('cannot own a pet');
+    });
   });
 });

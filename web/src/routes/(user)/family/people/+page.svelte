@@ -6,10 +6,10 @@
   import { bySurname, lifespan } from '#lib/family/format.ts';
   import { Route } from '#lib/route.ts';
   import { handleError } from '#lib/utils/handle-error.ts';
-  import { FamilyPersonKind, createFamilyPerson, type FamilyPersonResponseDto } from '@immich/sdk';
+  import { FamilyPersonKind, createFamilyPerson, updateFamilyPerson, type FamilyPersonResponseDto } from '@immich/sdk';
   import { Alert, Button, Field, Input, Stack, Text } from '@immich/ui';
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { goto, invalidateAll } from '$app/navigation';
   import type { PageData } from './$types';
 
   type Props = { data: PageData };
@@ -22,9 +22,15 @@
 
   onMount(() => void familyState.load());
 
-  const people = $derived(
-    (data.people ?? []).filter((person) => person.name.toLowerCase().includes(search.trim().toLowerCase())),
-  );
+  // hidden people stay out of the lists until someone asks for them, like the People page on iOS
+  const matchesSearch = (person: FamilyPersonResponseDto) =>
+    person.name.toLowerCase().includes(search.trim().toLowerCase());
+  const hiddenPeople = $derived((data.people ?? []).filter((person) => person.isHidden));
+  const hiddenMatches = $derived(hiddenPeople.filter((person) => matchesSearch(person)).sort(bySurname));
+  let showHidden = $state(false);
+  let unhiding = $state<string | null>(null);
+
+  const people = $derived((data.people ?? []).filter((person) => !person.isHidden && matchesSearch(person)));
   const named = $derived(
     people.filter((person) => person.name && person.kind === FamilyPersonKind.Person).sort(bySurname),
   );
@@ -34,13 +40,25 @@
   // pets found by pet recognition start without a name; show them so someone can name them
   const pets = $derived(
     (data.people ?? [])
-      .filter((person) => person.kind === FamilyPersonKind.Pet)
+      .filter((person) => !person.isHidden && person.kind === FamilyPersonKind.Pet)
       .filter((person) => !search.trim() || person.name.toLowerCase().includes(search.trim().toLowerCase()))
       .sort((a, b) =>
         a.name && b.name ? a.name.localeCompare(b.name) : a.name ? -1 : b.name ? 1 : b.faceCount - a.faceCount,
       ),
   );
   const petLabel = (pet: FamilyPersonResponseDto) => pet.name || 'Name this pet';
+
+  const unhide = async (person: FamilyPersonResponseDto) => {
+    unhiding = person.id;
+    try {
+      await updateFamilyPerson({ id: person.id, familyPersonUpdateDto: { isHidden: false } });
+      await invalidateAll();
+    } catch (error) {
+      handleError(error, 'Could not show them again');
+    } finally {
+      unhiding = null;
+    }
+  };
 
   const onAdd = async (event: Event) => {
     event.preventDefault();
@@ -123,6 +141,44 @@
           {unnamedCount} more {unnamedCount === 1 ? 'person has' : 'people have'} no name yet. Name and merge faces on the
           <a href={Route.people()} class="underline">faces</a> page.
         </Text>
+      {/if}
+
+      {#if hiddenPeople.length > 0}
+        <section class="flex flex-col gap-3">
+          <div>
+            <Button variant="ghost" shape="round" onclick={() => (showHidden = !showHidden)}>
+              {showHidden ? 'Hide' : 'Show'} hidden people ({hiddenPeople.length})
+            </Button>
+          </div>
+          {#if showHidden}
+            <Text size="large" fontWeight="semi-bold">Hidden</Text>
+            {#if hiddenMatches.length === 0}
+              <Text size="small" color="muted">No hidden people match.</Text>
+            {/if}
+            <ul class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+              {#each hiddenMatches as person (person.id)}
+                <li class="flex flex-col items-center gap-1">
+                  <a
+                    href={Route.familyPerson({ id: person.id })}
+                    class="flex flex-col items-center gap-2 rounded-xl p-3 text-center transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+                  >
+                    <FamilyFace id={person.id} name={person.name} hasPhotos={person.faceCount > 0} />
+                    <Text fontWeight="semi-bold">{person.name || 'Unnamed'}</Text>
+                  </a>
+                  {#if familyState.canContribute}
+                    <Button
+                      size="small"
+                      variant="outline"
+                      shape="round"
+                      loading={unhiding === person.id}
+                      onclick={() => unhide(person)}>Show in People</Button
+                    >
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </section>
       {/if}
 
       {#if familyState.canContribute}

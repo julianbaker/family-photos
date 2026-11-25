@@ -1949,6 +1949,8 @@ export type FamilyPersonResponseDto = {
     gender: (FamilyGender) | null;
     /** Person ID (the person group, same as in /people) */
     id: string;
+    /** Hidden from People lists; still named on photos */
+    isHidden: boolean;
     kind: FamilyPersonKind;
     /** The member account this person is */
     linkedUserId: string | null;
@@ -1978,6 +1980,8 @@ export type FamilyPersonUpdateDto = {
     /** A date, as much as is known: YYYY, YYYY-MM or YYYY-MM-DD */
     deathDate?: string | null;
     gender?: (FamilyGender) | null;
+    /** Hide from People lists, for the whole family */
+    isHidden?: boolean;
     /** Set by hand; null means worked out from the photos */
     kind?: (FamilyPersonKind) | null;
     /** Link to a member account ("this is me") */
@@ -9256,7 +9260,11 @@ export enum FamilyRelativeKind {
     Child = "child",
     Sibling = "sibling",
     Pet = "pet",
-    Owner = "owner"
+    Owner = "owner",
+    Godfather = "godfather",
+    Godmother = "godmother",
+    Godparent = "godparent",
+    Godchild = "godchild"
 }
 export enum FamilyRelationQualifier {
     Step = "step",

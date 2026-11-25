@@ -343,3 +343,106 @@ describe('pets', () => {
     expect(tile(layout, 'Ann').x).toBe(tile(layout, 'Rex').x);
   });
 });
+
+describe('people who are related two ways', () => {
+  const spouse = (a: string, b: string): TreeRelation => ({
+    id: `r${nextId++}`,
+    personId: a,
+    relatedPersonId: b,
+    type: 'spouse',
+    qualifier: null,
+  });
+  const sibling = (a: string, b: string): TreeRelation => ({
+    id: `r${nextId++}`,
+    personId: a,
+    relatedPersonId: b,
+    type: 'sibling',
+    qualifier: null,
+  });
+  const expectUniqueKeys = (layout: TreeLayout) => {
+    const keys = layout.tiles.map((t) => t.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  };
+
+  it('places a partner who is also a sibling once, from either side', () => {
+    const graph = buildGraph(people(['Mum', 'female'], ['Dad', 'male'], ['Me', 'male'], ['Sis', 'female']), [
+      parent('Mum', 'Me'),
+      parent('Dad', 'Me'),
+      parent('Mum', 'Sis'),
+      parent('Dad', 'Sis'),
+      spouse('Me', 'Sis'),
+    ]);
+    for (const focus of ['Me', 'Sis']) {
+      const layout = layoutTree(graph, focus);
+      expectUniqueKeys(layout);
+      expectNoOverlaps(layout);
+      expect(layout.tiles.filter((t) => t.kind === 'person' && t.generation === 0)).toHaveLength(2);
+    }
+  });
+
+  it('places a partner who is a half-sibling or only a recorded sibling once', () => {
+    const graph = buildGraph(
+      people(
+        ['Mum', 'female'],
+        ['Dad', 'male'],
+        ['Other', 'female'],
+        ['Me', 'male'],
+        ['Half', 'female'],
+        ['Rec', 'female'],
+      ),
+      [
+        parent('Mum', 'Me'),
+        parent('Dad', 'Me'),
+        parent('Dad', 'Half'),
+        parent('Other', 'Half'),
+        spouse('Me', 'Half'),
+        sibling('Me', 'Rec'),
+        spouse('Me', 'Rec'),
+      ],
+    );
+    const layout = layoutTree(graph, 'Me');
+    expectUniqueKeys(layout);
+    expectNoOverlaps(layout);
+  });
+
+  it('keeps the bars between rows well apart', () => {
+    // a half-sibling, a step-sibling and the partner's sister, all at once
+    const graph = buildGraph(
+      people(
+        ['Dad', 'male'],
+        ['Mum', 'female'],
+        ['Other', 'female'],
+        ['Steve', 'male'],
+        ['Me', 'male'],
+        ['Half', 'female'],
+        ['Sara', 'female'],
+        ['Kate', 'female'],
+        ['Laura', 'female'],
+      ),
+      [
+        parent('Dad', 'Me'),
+        parent('Mum', 'Me'),
+        parent('Dad', 'Half'),
+        parent('Other', 'Half'),
+        spouse('Mum', 'Steve'),
+        parent('Steve', 'Sara'),
+        spouse('Me', 'Kate'),
+        sibling('Kate', 'Laura'),
+      ],
+    );
+    const layout = layoutTree(graph, 'Me');
+    const barY = (prefix: string) => {
+      const line = layout.lines.find((l) => l.key.startsWith(prefix));
+      expect(line, prefix).toBeDefined();
+      // the y of the line's horizontal run
+      const run = line!.points.find((point, i) => i > 0 && point[1] === line!.points[i - 1][1]);
+      return run![1];
+    };
+    const ys = [barY('bar:Me'), barY('half:Dad'), barY('step-kids:Steve'), barY('inlaw-bracket:')];
+    for (const [i, a] of ys.entries()) {
+      for (const b of ys.slice(i + 1)) {
+        expect(Math.abs(a - b)).toBeGreaterThanOrEqual(8);
+      }
+    }
+  });
+});

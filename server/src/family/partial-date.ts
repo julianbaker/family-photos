@@ -50,3 +50,20 @@ export const ageOnPartial = (birth: string | null, taken: string | null): number
 };
 
 const daysIn = (year: number, month: number) => new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+/**
+What a stock screen's birth date means for the family's record: undefined for no change, else the new
+value. Members' own copies hold null when the family date is partial ('1938'), so a stock screen
+saving that null back must not wipe it; a full day can still be cleared.
+*/
+export const stockBirthDateChange = (requested: string | null, current: string | null): string | null | undefined => {
+  if (requested === current) {
+    return undefined;
+  }
+  if (requested === null && current !== null && !FULL_DAY.test(current)) {
+    return undefined;
+  }
+  return requested;
+};
+
+const FULL_DAY = /^\d{4}-\d{2}-\d{2}$/;

@@ -166,6 +166,10 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
   const placed = new Set<string>();
 
   const person = (id: string, x: number, generation: number, focus = false) => {
+    // one tile per person: the page keys tiles by person, and a second one would crash the keyed each
+    if (placed.has(id)) {
+      return;
+    }
     tiles.push({ key: `p:${id}`, kind: 'person', personId: id, x, y: generation * ROW, generation, focus });
     placed.add(id);
   };
@@ -379,8 +383,9 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
   // ---- the middle row: siblings, the person, partners
   // The first partner sits to the right and a second to the left, so each couple's line (and the
   // line down to their children) runs only between the two of them; any further partners go right.
-  const siblings = siblingsOf(graph, focusId);
   const partners = partnersOf(graph, focusId);
+  // someone recorded as both a partner and a sibling is shown once, as the partner
+  const siblings = siblingsOf(graph, focusId).filter((sibling) => !partners.includes(sibling));
   const partnerX = new Map<string, number>();
   let right = 0;
   let left = 0;
@@ -502,7 +507,7 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
     }
     // the partner and their brothers and sisters share a bracket just above them
     const px = partnerX.get(partnerSide)!;
-    const bracketY = top(0) - 14;
+    const bracketY = top(0) - 12;
     lines.push({
       key: `inlaw-bracket:${partnerSide}`,
       points: [
@@ -549,7 +554,9 @@ export const layoutTree = (graph: FamilyGraph, focusId: string, options: LayoutO
   // ---- step-siblings: a step-parent's own children, at the end of the middle row on that
   // step-parent's side, hanging from their own line
   const rowZero = () => tiles.filter((t) => t.generation === 0).map((t) => t.x);
-  const stepBarY = top(0) - TILE.gapY / 2 + 24;
+  // Bars between the rows sit 12px apart so none runs close to another: step-siblings -48, the
+  // parents' bar -36, half-siblings -24 and the partner's siblings -12 (from the top of the tiles).
+  const stepBarY = top(0) - TILE.gapY / 2 - 12;
   for (const { id: stepParent, x: spx, side } of stepParentsPlaced) {
     const theirs = childrenOf(graph, stepParent).filter((kid) => kid !== focusId && !placed.has(kid) && !isPet(kid));
     if (theirs.length === 0) {

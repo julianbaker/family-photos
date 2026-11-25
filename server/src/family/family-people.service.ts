@@ -30,7 +30,7 @@ import {
 } from 'src/family/family-relations.js';
 import { FamilyHistoryAction, FamilyRole } from 'src/family/family.enum.js';
 import { isFamilyEnabled } from 'src/family/family.flag.js';
-import { ageOnPartial, endOfPeriod, isPartialDate } from 'src/family/partial-date.js';
+import { ageOnPartial, endOfPeriod, isPartialDate, stockBirthDateChange } from 'src/family/partial-date.js';
 import { FamilyMembership } from 'src/family/family.repository.js';
 import { FamilyPersonTable } from 'src/family/schema/family-person.table.js';
 import { FamilyRelationTable } from 'src/family/schema/family-relation.table.js';
@@ -183,9 +183,12 @@ export class FamilyPeopleService extends BaseService {
     if (values.name !== undefined && values.name !== before.name) {
       changes.name = values.name;
     }
-    if (values.birthDate !== undefined && toDateString(values.birthDate) !== before.birthDate) {
+    if (values.birthDate !== undefined) {
       // the stock screens set an exact day
-      changes.birthDate = toDateString(values.birthDate);
+      const birthDate = stockBirthDateChange(toDateString(values.birthDate), before.birthDate);
+      if (birthDate !== undefined) {
+        changes.birthDate = birthDate;
+      }
     }
     if (Object.keys(changes).length === 0) {
       return;
