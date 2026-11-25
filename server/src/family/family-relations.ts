@@ -605,6 +605,19 @@ export class FamilyGraph {
     return this.ancestors(id).has(ancestor);
   }
 
+  /** True when they are recorded as siblings (any kind) or share a parent. */
+  areSiblings(a: string, b: string): boolean {
+    if (this.siblings.get(a)?.has(b)) {
+      return true;
+    }
+    const parentsA = this.parents.get(a);
+    return !!parentsA && [...parentsA.keys()].some((parent) => this.parents.get(b)?.has(parent));
+  }
+
+  areSpouses(a: string, b: string): boolean {
+    return this.spouses.get(a)?.has(b) ?? false;
+  }
+
   bloodParentCount(id: string): number {
     return this.parents.get(id)?.size ?? 0;
   }
@@ -638,15 +651,17 @@ export const validateRelation = (
     return `"${qualifier}" doesn't apply to a ${type} relation`;
   }
 
-  // a pet's people are its owners: at most two, like parents, so the tree can draw them
+  // a pet's people are its owners: at most two, like parents, so the tree can draw them. Nothing else
+  // (godparent, partner, sibling, friend...) makes sense for a pet, and the graph ignores it anyway.
   if (graph.isPet(relatedPersonId) || graph.isPet(personId)) {
-    if (type === RelationType.Parent && graph.isPet(relatedPersonId)) {
-      if (graph.isPet(personId)) {
-        return 'A pet cannot own a pet';
-      }
-      if (graph.ownerCount(relatedPersonId) >= 2) {
-        return 'This pet already has two owners';
-      }
+    if (type !== RelationType.Parent) {
+      return `A pet can only have owners, not a ${type} relation`;
+    }
+    if (graph.isPet(personId)) {
+      return graph.isPet(relatedPersonId) ? 'A pet cannot own a pet' : 'A pet cannot be anyone\'s parent';
+    }
+    if (graph.ownerCount(relatedPersonId) >= 2) {
+      return 'This pet already has two owners';
     }
     return null;
   }
@@ -665,6 +680,14 @@ export const validateRelation = (
     (graph.isAncestor(personId, relatedPersonId) || graph.isAncestor(relatedPersonId, personId))
   ) {
     return 'One of them is already an ancestor of the other';
+  }
+
+  // siblings who are also partners would sit in the family tree twice
+  if (type === RelationType.Spouse && graph.areSiblings(personId, relatedPersonId)) {
+    return 'They are siblings, so they cannot also be partners';
+  }
+  if (type === RelationType.Sibling && graph.areSpouses(personId, relatedPersonId)) {
+    return 'They are partners, so they cannot also be siblings';
   }
 
   return null;
