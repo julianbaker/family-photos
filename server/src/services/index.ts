@@ -1,3 +1,4 @@
+import { FamilyAppLoginService } from 'src/family/family-app-login.service.js';
 import { FamilyInviteService } from 'src/family/family-invite.service.js';
 import { FamilyPeopleService } from 'src/family/family-people.service.js';
 import { FamilyService } from 'src/family/family.service.js';
@@ -119,4 +120,5 @@ export const services = [
   FamilyInviteService,
   FamilyPeopleService,
   FamilyPetService,
+  FamilyAppLoginService,
 ];

@@ -5,6 +5,7 @@ import { InjectKysely } from 'nestjs-kysely';
 import { DummyValue, GenerateSql } from 'src/decorators.js';
 import { AlbumUserRole, AssetFileType, AssetVisibility, SourceType } from 'src/enum.js';
 import { FamilyInviteRequestStatus, FamilyRole } from 'src/family/family.enum.js';
+import { FamilyAppLoginCodeTable } from 'src/family/schema/family-app-login-code.table.js';
 import { FamilyCommentTable } from 'src/family/schema/family-comment.table.js';
 import { FamilyHistoryTable } from 'src/family/schema/family-history.table.js';
 import { FamilyInviteRequestTable } from 'src/family/schema/family-invite-request.table.js';
@@ -446,6 +447,37 @@ export class FamilyRepository {
       .where('status', '=', FamilyInviteRequestStatus.Pending)
       .returningAll()
       .executeTakeFirst();
+  }
+
+  // app sign-in codes
+
+  createAppLoginCode(code: Insertable<FamilyAppLoginCodeTable>) {
+    return this.db.insertInto('family_app_login_code').values(code).returningAll().executeTakeFirstOrThrow();
+  }
+
+  /**
+  Marks a code used, atomically, and returns whose it was. Returns nothing for an unknown, expired or
+  already used code, so two redeems of one code can't both sign in.
+  */
+  @GenerateSql({ params: [DummyValue.BUFFER] })
+  consumeAppLoginCode(codeHash: Buffer) {
+    return this.db
+      .updateTable('family_app_login_code')
+      .set({ usedAt: new Date() })
+      .where('codeHash', '=', codeHash)
+      .where('usedAt', 'is', null)
+      .where('expiresAt', '>', new Date())
+      .returning(['id', 'userId'])
+      .executeTakeFirst();
+  }
+
+  /** Codes that can no longer be used are kept only until the next code is made. */
+  @GenerateSql()
+  async deleteStaleAppLoginCodes(): Promise<void> {
+    await this.db
+      .deleteFrom('family_app_login_code')
+      .where((eb) => eb.or([eb('usedAt', 'is not', null), eb('expiresAt', '<=', new Date())]))
+      .execute();
   }
 
   // people

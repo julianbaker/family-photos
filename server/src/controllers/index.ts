@@ -45,6 +45,7 @@ import { UserController } from 'src/controllers/user.controller.js';
 import { VideoStreamController } from 'src/controllers/video-stream.controller.js';
 import { ViewController } from 'src/controllers/view.controller.js';
 import { WorkflowController } from 'src/controllers/workflow.controller.js';
+import { FamilyAppLoginController } from 'src/family/family-app-login.controller.js';
 import { FamilyInviteController } from 'src/family/family-invite.controller.js';
 import { FamilyPeopleController } from 'src/family/family-people.controller.js';
 import { FamilyWellKnownController } from 'src/family/family-well-known.controller.js';
@@ -103,4 +104,5 @@ export const controllers = [
   FamilyInviteController,
   FamilyWellKnownController,
   FamilyPeopleController,
+  FamilyAppLoginController,
 ];

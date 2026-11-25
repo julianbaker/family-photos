@@ -296,6 +296,26 @@ where
   "id" = $1
   and "familyId" = $2
 
+-- FamilyRepository.consumeAppLoginCode
+update "family_app_login_code"
+set
+  "usedAt" = $1
+where
+  "codeHash" = $2
+  and "usedAt" is null
+  and "expiresAt" > $3
+returning
+  "id",
+  "userId"
+
+-- FamilyRepository.deleteStaleAppLoginCodes
+delete from "family_app_login_code"
+where
+  (
+    "usedAt" is not null
+    or "expiresAt" <= $1
+  )
+
 -- FamilyRepository.seedFamilyPeople
 insert into
   "family_person" ("personGroupId", "familyId", "name", "birthDate")

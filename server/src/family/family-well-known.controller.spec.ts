@@ -16,7 +16,7 @@ describe(getAppleAppSiteAssociation.name, () => {
     expect(getAppleAppSiteAssociation()).toBeNull();
   });
 
-  it('sends invite links to the app', () => {
+  it('sends invite and sign-in links to the app', () => {
     process.env.IMMICH_FAMILY_ENABLED = 'true';
     process.env.IMMICH_FAMILY_IOS_APP_ID = 'TEAM123456.design.example.app';
     expect(getAppleAppSiteAssociation()).toEqual({
@@ -24,7 +24,10 @@ describe(getAppleAppSiteAssociation.name, () => {
         details: [
           {
             appIDs: ['TEAM123456.design.example.app'],
-            components: [{ '/': '/invite/*', comment: 'Family invite links' }],
+            components: [
+              { '/': '/invite/*', comment: 'Family invite links' },
+              { '/': '/app-login', '?': { code: '?*' }, comment: 'One-time sign-in links' },
+            ],
           },
         ],
       },
