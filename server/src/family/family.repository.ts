@@ -448,10 +448,13 @@ export class FamilyRepository {
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID] })
   async mirrorFamilyPeople(familyId: string, personGroupId?: string): Promise<void> {
     await sql`
-      insert into "person" ("ownerId", "personGroupId", "name", "birthDate")
-      -- only an exact birth date goes to the stock records (they have no idea of "just the year")
+      insert into "person" ("ownerId", "personGroupId", "name", "birthDate", "isHidden")
+      -- only an exact birth date goes to the stock records (they have no idea of "just the year");
+      -- a new row starts hidden when the family hid the person, so a later joiner doesn't see them in People.
+      -- Existing rows keep their own isHidden: it's only synced when the family changes it (mirrorHidden)
       select m."userId", fp."personGroupId", fp."name",
-        case when length(fp."birthDate") = 10 then fp."birthDate"::date end
+        case when length(fp."birthDate") = 10 then fp."birthDate"::date end,
+        fp."isHidden"
       from "family_person" fp
       join "family_member" m on m."familyId" = fp."familyId"
       where fp."familyId" = ${familyId}
@@ -463,7 +466,14 @@ export class FamilyRepository {
     `.execute(this.db);
   }
 
-  /** Hides (or shows) a person on every member's own People lists, the website's included. */
+  /**
+  Hides (or shows) a person on every member's own People lists, the website's included.
+
+  This overwrites every member's own flag, personal hides included: the family's flag is the one that
+  counts for a family person. So showing someone again shows them for everyone, even a member who had
+  hidden them for themselves before the family did. Telling the two apart would need the family hide
+  tracked per member; not worth a column for a rare case.
+  */
   @GenerateSql({ params: [DummyValue.UUID, DummyValue.UUID, true] })
   async mirrorHidden(familyId: string, personGroupId: string, isHidden: boolean): Promise<void> {
     await sql`

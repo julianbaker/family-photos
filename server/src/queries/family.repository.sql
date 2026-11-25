@@ -307,15 +307,24 @@ on conflict ("personGroupId") do nothing
 
 -- FamilyRepository.mirrorFamilyPeople
 insert into
-  "person" ("ownerId", "personGroupId", "name", "birthDate")
-  -- only an exact birth date goes to the stock records (they have no idea of "just the year")
+  "person" (
+    "ownerId",
+    "personGroupId",
+    "name",
+    "birthDate",
+    "isHidden"
+  )
+  -- only an exact birth date goes to the stock records (they have no idea of "just the year");
+  -- a new row starts hidden when the family hid the person, so a later joiner doesn't see them in People.
+  -- Existing rows keep their own isHidden: it's only synced when the family changes it (mirrorHidden)
 select
   m."userId",
   fp."personGroupId",
   fp."name",
   case
     when length(fp."birthDate") = 10 then fp."birthDate"::date
-  end
+  end,
+  fp."isHidden"
 from
   "family_person" fp
   join "family_member" m on m."familyId" = fp."familyId"
